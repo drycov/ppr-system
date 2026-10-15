@@ -1,10 +1,11 @@
 """JWT-авторизация с bcrypt-хешированием паролей"""
 from datetime import datetime, timedelta
+import hashlib
 from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy.orm import Session
 from database import get_db
 from models import User
@@ -14,7 +15,6 @@ SECRET_KEY = "satory-ppr-oss-apk-2026-secret-key-change-in-prod"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 12
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
@@ -35,22 +35,39 @@ class UserOut(BaseModel):
         from_attributes = True
 
 
+def _is_password_hash(value: str) -> bool:
+    return value.startswith("$2") or value.startswith("$bcrypt-sha256$")
+
+
 def verify_password(plain: str, hashed: str) -> bool:
+    """Поддерживает обычный bcrypt и SHA-256 pre-hash для паролей длиннее 72 байт."""
     if not hashed:
         return False
+    if hashed.startswith("$bcrypt-sha256$"):
+        try:
+            digest = hashlib.sha256(plain.encode("utf-8")).hexdigest().encode("ascii")
+            return bcrypt.checkpw(digest, hashed.removeprefix("$bcrypt-sha256$").encode("utf-8"))
+        except (ValueError, TypeError):
+            return False
     if not hashed.startswith("$2"):
+        # Совместимость с legacy-паролями в открытом виде.
         return plain == hashed
     try:
-        return pwd_context.verify(plain, hashed)
-    except Exception:
+        raw = plain.encode("utf-8")
+        if len(raw) > 72:
+            return False
+        return bcrypt.checkpw(raw, hashed.encode("utf-8"))
+    except (ValueError, TypeError):
         return False
 
 
 def get_password_hash(password: str) -> str:
-    # bcrypt принимает максимум 72 байта; passlib + bcrypt>=4.1 часто падают без явной обрезки
-    if isinstance(password, str):
-        password = password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
-    return pwd_context.hash(password)
+    """Создаёт bcrypt-хеш; длинные пароли безопасно предварительно хешируются SHA-256."""
+    raw = password.encode("utf-8")
+    if len(raw) > 72:
+        digest = hashlib.sha256(raw).hexdigest().encode("ascii")
+        return "$bcrypt-sha256$" + bcrypt.hashpw(digest, bcrypt.gensalt()).decode("utf-8")
+    return bcrypt.hashpw(raw, bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -66,7 +83,7 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
         return None
     if not verify_password(password, user.hashed_password or ""):
         return None
-    if user.hashed_password and not user.hashed_password.startswith("$2"):
+    if user.hashed_password and not _is_password_hash(user.hashed_password):
         user.hashed_password = get_password_hash(password)
         db.commit()
     return user
