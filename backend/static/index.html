@@ -327,6 +327,8 @@
       if (su) su.classList.toggle('hidden', !CURRENT_USER);
       if (sun) sun.textContent = name;
       if (sur) sur.textContent = ROLE_LABELS[role] || role;
+      const dutiesNav = document.querySelector('[data-page="duties"]');
+      if (dutiesNav) dutiesNav.classList.toggle('hidden', !CURRENT_USER || !['admin', 'head'].includes(role));
       window.__user = CURRENT_USER;
     }
 
@@ -359,6 +361,7 @@
           username: me.username,
           full_name: me.full_name,
           role: me.role,
+          department_id: me.department_id,
         };
         localStorage.setItem('ppr_user', JSON.stringify(CURRENT_USER));
       } catch (_) {}
@@ -1888,6 +1891,12 @@ async function renderStaff(el) {
     }
 
     async function renderDuties(el) {
+      if (!CURRENT_USER || !['admin', 'head'].includes(CURRENT_USER.role)) {
+        el.innerHTML = '<div class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Графики дежурств доступны администратору и руководителю подразделения.</div>';
+        return;
+      }
+      const isAdmin = CURRENT_USER.role === 'admin';
+      const myDepartmentId = CURRENT_USER.department_id == null ? null : Number(CURRENT_USER.department_id);
       const now = new Date();
       const y = now.getFullYear(), m = now.getMonth();
       const from = y + '-' + String(m+1).padStart(2,'0') + '-01';
@@ -1900,7 +1909,10 @@ async function renderStaff(el) {
         api('/api/departments?active_only=true')
       ]);
       const activeStaff = staff.filter(s => s.is_active !== false && s.can_duty !== false);
-      const departmentNames = Object.fromEntries(departments.map(d => [d.id, d.name]));
+      const visibleDepartments = isAdmin ? departments : departments.filter(d => Number(d.id) === myDepartmentId);
+      const visibleDuties = isAdmin ? duties : duties.filter(d => d.department_id == null || Number(d.department_id) === myDepartmentId);
+      const visibleToday = isAdmin ? today : today.filter(d => d.department_id == null || Number(d.department_id) === myDepartmentId);
+      const departmentNames = Object.fromEntries(visibleDepartments.map(d => [d.id, d.name]));
       const escapeDuty = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
       const shiftName = shift => ({day:'День',night:'Ночь',full:'24 ч.'})[shift] || shift;
       const scopeKey = id => id == null ? 'global' : String(id);
@@ -1908,26 +1920,29 @@ async function renderStaff(el) {
       const dutyFor = (date, deptId) => duties.find(d => d.duty_date === date && (deptId == null ? d.department_id == null : d.department_id === deptId) && (d.shift === 'day' || d.shift === 'full')) || duties.find(d => d.duty_date === date && (deptId == null ? d.department_id == null : d.department_id === deptId)) || null;
       const renderCalendar = (scopeId, scopeStaff, scopeDuties) => {
         const map = {};
-        scopeDuties.forEach(d => { if (!map[d.duty_date] || d.shift === 'day' || d.shift === 'full') map[d.duty_date] = d; });
+        scopeDuties.forEach(d => { (map[d.duty_date] ||= []).push(d); });
         let html = '';
         for (let day = 1; day <= lastDay; day++) {
           const ds = y + '-' + String(m+1).padStart(2,'0') + '-' + String(day).padStart(2,'0');
-          const duty = map[ds];
-          const name = duty && duty.user ? (duty.user.full_name || duty.user.username) : '';
+          const dayDuties = map[ds] || [];
+          const duty = dayDuties.find(d => d.shift === 'day' || d.shift === 'full') || dayDuties[0] || null;
           const todayCell = ds === now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
-          html += '<div class="border rounded-lg p-2 text-xs min-w-0 ' + (todayCell?'ring-2 ring-teal-600 ':'') + (duty?'bg-teal-50 border-teal-200':'bg-white') + '">' +
-            '<div class="flex items-center justify-between gap-1 mb-1"><span class="font-semibold">' + day + '</span><span class="text-[10px] text-slate-400">' + (duty ? escapeDuty(shiftName(duty.shift)) : '') + '</span></div>' +
-            '<div class="text-slate-700 truncate mb-1" title="' + escapeDuty(name) + '">' + (escapeDuty(name) || '<span class="text-slate-400">Не назначен</span>') + '</div>' +
+          const dutyNames = dayDuties.map(d => {
+            const name = d.user ? (d.user.full_name || d.user.username) : ('ID ' + d.user_id);
+            return '<div class="flex items-start justify-between gap-1 mb-1"><span class="text-slate-700 break-words">' + escapeDuty(name) + ' <span class="text-[10px] text-slate-500">(' + escapeDuty(shiftName(d.shift)) + ')</span></span><button type="button" data-duty-id="' + d.id + '" class="duty-delete text-red-600" title="Снять это дежурство">×</button></div>';
+          }).join('');
+          html += '<div class="border rounded-lg p-2 text-xs min-w-0 ' + (todayCell?'ring-2 ring-teal-600 ':'') + (dayDuties.length?'bg-teal-50 border-teal-200':'bg-white') + '">' +
+            '<div class="flex items-center justify-between gap-1 mb-1"><span class="font-semibold">' + day + '</span><span class="text-[10px] text-slate-400">' + dayDuties.length + ' деж.</span></div>' +
+            (dutyNames || '<div class="text-slate-400 mb-1">Не назначен</div>') +
             '<select data-date="' + ds + '" data-scope="' + scopeKey(scopeId) + '" class="duty-select w-full border rounded px-1 py-1 text-xs bg-white"><option value="">Не назначен</option>' +
             scopeStaff.map(s => '<option value="' + s.id + '"' + (duty && duty.user_id===s.id?' selected':'') + '>' + escapeDuty(s.full_name || s.username) + '</option>').join('') +
             '</select>' +
-            (duty ? '<button type="button" data-duty-id="' + duty.id + '" class="duty-delete mt-1 w-full text-[10px] text-red-600 hover:bg-red-50 rounded py-1">Снять</button>' : '') +
             '</div>';
         }
         return html;
       };
-      const globalDuties = duties.filter(d => d.department_id == null);
-      const departmentCards = departments.map(dept => {
+      const globalDuties = visibleDuties.filter(d => d.department_id == null);
+      const departmentCards = visibleDepartments.map(dept => {
         const deptStaff = activeStaff.filter(s => s.department_id === dept.id);
         const deptDuties = duties.filter(d => d.department_id === dept.id);
         const assigned = deptDuties.length;
@@ -1941,19 +1956,31 @@ async function renderStaff(el) {
         '<div class="flex flex-wrap justify-between items-center gap-2 mb-3"><div><h3 class="font-semibold text-slate-900">Общий график — все подразделения</h3><p class="text-xs text-slate-600">Общие дежурства используются, если для конкретного подразделения на эту дату не назначен свой дежурный.</p></div><span class="text-xs text-slate-600">Назначений: ' + globalDuties.length + '</span></div>' +
         '<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">' + renderCalendar(null, activeStaff, globalDuties) + '</div></section>';
       const grouped = {};
-      duties.forEach(d => { (grouped[d.duty_date] ||= []).push(d); });
+      visibleDuties.forEach(d => { (grouped[d.duty_date] ||= []).push(d); });
       const overallRows = Object.keys(grouped).sort().map(ds => {
-        const entries = grouped[ds].map(d => '<span class="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 mr-1 mb-1"><strong>' + escapeDuty(scopeTitle(d.department_id)) + ':</strong> ' + escapeDuty(d.user ? (d.user.full_name || d.user.username) : ('ID ' + d.user_id)) + ' <span class="text-slate-500">(' + escapeDuty(shiftName(d.shift)) + ')</span> <button type="button" data-duty-id="' + d.id + '" class="duty-delete text-red-600" title="Снять дежурство">×</button></span>').join('');
-        return '<tr class="border-t"><td class="p-2 whitespace-nowrap">' + escapeDuty(ds) + '</td><td class="p-2">' + entries + '</td></tr>';
+        const dayDuties = grouped[ds];
+        const globalDutiesForDay = dayDuties.filter(d => d.department_id == null);
+        const entries = visibleDepartments.map(dept => {
+          const localDuties = dayDuties.filter(d => Number(d.department_id) === Number(dept.id));
+          const effectiveDuties = localDuties.length ? localDuties : globalDutiesForDay;
+          if (!effectiveDuties.length) return '';
+          const source = localDuties.length ? 'свой график' : 'общий график';
+          const names = effectiveDuties.map(d => {
+            const name = d.user ? (d.user.full_name || d.user.username) : ('ID ' + d.user_id);
+            return escapeDuty(name) + ' <span class="text-slate-500">(' + escapeDuty(shiftName(d.shift)) + ')</span>';
+          }).join(', ');
+          return '<span class="inline-flex flex-wrap items-center gap-1 rounded bg-slate-100 px-2 py-1 mr-1 mb-1"><strong>' + escapeDuty(dept.name) + ':</strong> ' + names + ' <span class="text-slate-500">[' + source + ']</span></span>';
+        }).filter(Boolean).join('');
+        return entries ? '<tr class="border-t"><td class="p-2 whitespace-nowrap">' + escapeDuty(ds) + '</td><td class="p-2">' + entries + '</td></tr>' : '';
       }).join('');
       el.innerHTML = `
         <div class="mb-4 flex flex-wrap gap-3 items-center">
-          <div class="bg-teal-50 border border-teal-200 rounded-lg px-4 py-2 text-sm"><span class="text-slate-500">Сегодня дежурят:</span><strong class="ml-1">${today.length ? today.map(t => escapeDuty(t.full_name || t.username) + ' — ' + escapeDuty(scopeTitle(t.department_id))).join('; ') : 'не назначены'}</strong></div>
+          <div class="bg-teal-50 border border-teal-200 rounded-lg px-4 py-2 text-sm"><span class="text-slate-500">Сегодня дежурят:</span><strong class="ml-1">${visibleToday.length ? visibleToday.map(t => escapeDuty(t.full_name || t.username) + ' — ' + escapeDuty(scopeTitle(t.department_id))).join('; ') : 'не назначены'}</strong></div>
           <div class="bg-white border border-slate-200 rounded-lg px-4 py-2 text-sm"><span class="text-slate-500">Назначений за месяц:</span><strong class="ml-1">${duties.length}</strong></div>
-          <button id="btn-reassign" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">Переназначить ППР по графикам</button>
+          ${isAdmin ? '<button id="btn-reassign" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">Переназначить ППР по графикам</button>' : ''}
         </div>
         ${globalCard}
-        <div class="mb-5"><h3 class="font-semibold text-lg mb-3">Графики по подразделениям</h3>${departmentCards || '<p class="text-sm text-slate-500">Подразделения не найдены.</p>'}</div>
+        ${isAdmin ? '<div class="mb-5"><h3 class="font-semibold text-lg mb-3">Графики по подразделениям</h3>' + (departmentCards || '<p class="text-sm text-slate-500">Подразделения не найдены.</p>') + '</div>' : '<div class="mb-5"><h3 class="font-semibold text-lg mb-3">График подразделения</h3>' + (departmentCards || '<p class="text-sm text-amber-700">У вашей учётной записи не указано подразделение.</p>') + '</div>'}
         <section class="bg-white border border-slate-200 rounded-xl p-4"><h3 class="font-semibold text-lg mb-3">Общий календарь дежурств</h3><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-slate-500"><th class="p-2">Дата</th><th class="p-2">Назначения по всем графикам</th></tr></thead><tbody>${overallRows || '<tr><td colspan="2" class="p-3 text-slate-500">Назначений на этот месяц нет.</td></tr>'}</tbody></table></div></section>`;
       el.querySelectorAll('.duty-select').forEach(sel => {
         sel.onchange = async () => {

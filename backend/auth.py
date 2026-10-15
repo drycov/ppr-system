@@ -30,6 +30,7 @@ class UserOut(BaseModel):
     username: str
     full_name: str
     role: str
+    department_id: Optional[int] = None
 
     class Config:
         from_attributes = True
