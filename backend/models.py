@@ -9,11 +9,22 @@ import enum
 
 
 class ObjectType(str, enum.Enum):
+    # АПК / линии
     CAMERA_INTEGRATION = "camera_integration"  # ИНТ
     OVN = "ovn"                                # ОВН (уличные)
     VOLES = "voles"                            # ВОЛС
     SIP = "sip"                                # СИП
-    NETWORK = "network"                        # Сетевое оборудование ОСС
+    # Сетевая инфраструктура ОСС
+    NETWORK = "network"                        # Сеть ОСС (общее)
+    US = "us"                                  # УС — узел связи
+    COD = "cod"                                # ЦОД
+    CORE_ROUTER = "core_router"                # Роутер ядра
+    CORE_SWITCH = "core_switch"                # Коммутатор ядра
+    ACCESS_SWITCH = "access_switch"            # Коммутатор доступа
+    EDGE_ROUTER = "edge_router"                # Граничный / провайдерский роутер
+    WIFI_CONTROLLER = "wifi_controller"        # Контроллер Wi-Fi
+    SERVER = "server"                          # Сервер сетевых служб
+    UPS = "ups"                                # ИБП
     OTHER = "other"
 
 
