@@ -3,7 +3,6 @@ from datetime import date, timedelta
 from calendar import monthrange
 from sqlalchemy.orm import Session
 from models import Object, PPRTemplate, PPRPlan, User, DutySchedule
-from settings_service import get_setting
 
 
 NETWORK_OBJECT_TYPES = {
@@ -45,10 +44,9 @@ def infer_specialty(user: User) -> str | None:
     return None
 
 
-def get_duty_user(db: Session, on_date: date) -> User | None:
-    # Единый дежурный выбирается для всей организации, независимо от подразделения.
-    # Для автоматического назначения ППР подходят дневная и круглосуточная смены.
-    duty = (
+def get_duty_user(db: Session, on_date: date, department_id: int | None = None) -> User | None:
+    # Сначала ищем дежурного конкретного подразделения; при отсутствии используем общий график.
+    base = (
         db.query(DutySchedule)
         .join(User, DutySchedule.user_id == User.id)
         .filter(
@@ -57,10 +55,21 @@ def get_duty_user(db: Session, on_date: date) -> User | None:
             User.is_active == True,
             User.can_duty == True,
         )
+    )
+    if department_id is not None:
+        local = (
+            base.filter(DutySchedule.department_id == department_id)
+            .order_by((DutySchedule.shift == "full").desc(), DutySchedule.id)
+            .first()
+        )
+        if local:
+            return local.user
+    global_duty = (
+        base.filter(DutySchedule.department_id.is_(None))
         .order_by((DutySchedule.shift == "full").desc(), DutySchedule.id)
         .first()
     )
-    return duty.user if duty else None
+    return global_duty.user if global_duty else None
 
 
 def get_users_by_specialty(db: Session, specialty: str | None, department_id: int | None = None) -> list:
@@ -85,7 +94,7 @@ def resolve_assignee_for_template(
     template: PPRTemplate,
     planned: date,
     index: int,
-    prefer_duty: bool | None = None,
+    prefer_duty: bool = True,
     department_id: int | None = None,
 ) -> tuple:
     """
@@ -110,7 +119,7 @@ def resolve_assignee_for_template(
 
     # Единое дежурство действует для всех подразделений и направлений ППР.
     if prefer_duty:
-        duty = get_duty_user(db, planned)
+        duty = get_duty_user(db, planned, department_id)
         if duty:
             return duty, True, duty.full_name or duty.username
 
@@ -162,10 +171,10 @@ def generate_plans_for_period(
     year: int,
     month: int,
     object_types: list = None,
-    only_without_plan: bool | None = None,
+    only_without_plan: bool = True,
     prefer_duty: bool = True,
     work_direction: str = None,
-    include_daily_templates: bool | None = None,
+    include_daily_templates: bool = False,
     department_id: int | None = None,
 ) -> dict:
     """
@@ -173,12 +182,6 @@ def generate_plans_for_period(
     - по шаблонам (общесистемные network + привязка к объектам camera/voles)
     - исполнитель по work_direction / specialty
     """
-    if only_without_plan is None:
-        only_without_plan = bool(get_setting(db, "planning.only_without_plan"))
-    if prefer_duty is None:
-        prefer_duty = bool(get_setting(db, "planning.prefer_duty")) and bool(get_setting(db, "duty.enabled"))
-    if include_daily_templates is None:
-        include_daily_templates = bool(get_setting(db, "planning.include_daily_templates"))
     if department_id is None:
         from models import Department
         departments = db.query(Department).filter(Department.is_active == True).order_by(Department.id).all()
@@ -381,7 +384,7 @@ def reassign_plans_by_duty(db: Session, year: int, month: int) -> dict:
     )
     updated = 0
     for p in plans:
-        user = get_duty_user(db, p.planned_date)
+        user = get_duty_user(db, p.planned_date, p.department_id)
         if user:
             p.assignee_id = user.id
             p.responsible = user.full_name or user.username
