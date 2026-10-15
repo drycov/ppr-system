@@ -211,3 +211,14 @@ class RelocationLog(Base):
     reason = Column(Text)
     date = Column(Date)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class NotificationLog(Base):
+    """Журнал уведомлений системы"""
+    __tablename__ = "notification_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String(50), index=True)  # overdue, duty, auto_plan, manual
+    message = Column(Text)
+    meta_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

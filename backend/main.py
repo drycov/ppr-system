@@ -11,7 +11,7 @@ from pathlib import Path
 from io import BytesIO
 
 from database import get_db, engine, Base
-from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule, Department, Position, SystemRole, RelocationLog
+from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule, Department, Position, SystemRole, RelocationLog, NotificationLog
 import schemas
 import seed
 from auth import (
@@ -23,6 +23,8 @@ from planning import generate_plans_for_period, mark_overdue, reassign_plans_by_
 from pdf_service import generate_ppr_act
 from excel_export import export_ppr_report
 from import_excel import import_from_excel
+from scheduler import start_scheduler
+from notifications import notify_message
 
 app = FastAPI(
     title="Система управления ППР — ОСС / АПК",
@@ -725,7 +727,7 @@ def relocate_object(
     old = obj.address
     obj.address = new_address
     obj.status = "active"
-    db.add(RelocationLog(
+    db.add(RelocationLog, NotificationLog(
         object_id=obj.id,
         old_address=old,
         new_address=new_address,
@@ -738,7 +740,7 @@ def relocate_object(
 
 @app.get("/api/objects/{object_id}/relocations")
 def object_relocations(object_id: int, db: Session = Depends(get_db)):
-    rows = db.query(RelocationLog).filter(RelocationLog.object_id == object_id).order_by(RelocationLog.date.desc()).all()
+    rows = db.query(RelocationLog, NotificationLog).filter(RelocationLog, NotificationLog.object_id == object_id).order_by(RelocationLog, NotificationLog.date.desc()).all()
     return [
         {"id": r.id, "old_address": r.old_address, "new_address": r.new_address, "reason": r.reason, "date": r.date.isoformat() if r.date else None}
         for r in rows
@@ -753,6 +755,61 @@ def deactivate_object(object_id: int, user: User = Depends(require_admin), db: S
     obj.status = "decommissioned"
     db.commit()
     return {"ok": True}
+
+
+
+# ========== Relocations journal ==========
+@app.get("/api/relocations")
+def list_relocations(limit: int = 50, db: Session = Depends(get_db)):
+    rows = (
+        db.query(RelocationLog)
+        .order_by(RelocationLog.date.desc(), RelocationLog.id.desc())
+        .limit(limit)
+        .all()
+    )
+    result = []
+    for r in rows:
+        obj = db.query(Object).filter(Object.id == r.object_id).first()
+        result.append({
+            "id": r.id,
+            "object_id": r.object_id,
+            "object_code": obj.code if obj else None,
+            "old_address": r.old_address,
+            "new_address": r.new_address,
+            "reason": r.reason,
+            "date": r.date.isoformat() if r.date else None,
+        })
+    return result
+
+
+# ========== Notifications ==========
+@app.get("/api/notifications")
+def list_notifications(limit: int = 50, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    rows = db.query(NotificationLog).order_by(NotificationLog.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": r.id,
+            "kind": r.kind,
+            "message": r.message,
+            "meta": r.meta_json,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+
+
+@app.post("/api/notifications/test")
+def test_notification(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    notify_message(db, "manual", f"Тестовое уведомление от {user.full_name or user.username}")
+    return {"ok": True, "message": "Запись создана. Telegram — если заданы TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID"}
+
+
+@app.post("/api/planning/run-daily")
+def run_daily_jobs_now(user: User = Depends(require_admin)):
+    """Ручной запуск ежедневных jobs (просрочки, дежурные, 1-е число)."""
+    from scheduler import _run_daily_jobs
+    _run_daily_jobs()
+    return {"ok": True, "message": "Ежедневные задачи выполнены"}
 
 
 # ========== Static frontend ==========

@@ -82,6 +82,12 @@
         <a href="#" data-page="staff" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
           <i data-lucide="users" class="w-4 h-4"></i> Сотрудники
         </a>
+        <a href="#" data-page="relocations" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="move" class="w-4 h-4"></i> Переносы
+        </a>
+        <a href="#" data-page="notifications" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="bell" class="w-4 h-4"></i> Уведомления
+        </a>
         <a href="#" data-page="duties" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
           <i data-lucide="calendar-days" class="w-4 h-4"></i> Дежурства
         </a>
@@ -237,6 +243,8 @@
         else if (page === 'directories') await renderDirectories(content);
         else if (page === 'staff') await renderStaff(content);
         else if (page === 'duties') await renderDuties(content);
+        else if (page === 'relocations') await renderRelocations(content);
+        else if (page === 'notifications') await renderNotifications(content);
       } catch (e) {
         content.innerHTML = `<div class="bg-red-50 text-red-700 p-4 rounded-lg">Ошибка: ${e.message}</div>`;
       }
@@ -741,6 +749,61 @@
       try {
         await api('/api/positions', { method: 'POST', body: JSON.stringify({ name, department_id, can_do_ppr_default: true, can_duty_default: true }) });
         loadPage('directories');
+      } catch (e) { alert(e.message); }
+    }
+
+
+    async function renderRelocations(el) {
+      const rows = await api('/api/relocations?limit=100');
+      el.innerHTML = `
+        <div class="bg-white rounded-xl border overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-left"><tr>
+              <th class="px-4 py-3">Дата</th><th class="px-4 py-3">Объект</th>
+              <th class="px-4 py-3">Было</th><th class="px-4 py-3">Стало</th><th class="px-4 py-3">Причина</th>
+            </tr></thead>
+            <tbody>
+              ${rows.length === 0 ? '<tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Нет переносов</td></tr>' :
+                rows.map(r => `<tr class="border-t table-row">
+                  <td class="px-4 py-3 whitespace-nowrap">${r.date || '—'}</td>
+                  <td class="px-4 py-3 font-mono text-xs">${r.object_code || r.object_id}</td>
+                  <td class="px-4 py-3 text-xs max-w-xs">${r.old_address || '—'}</td>
+                  <td class="px-4 py-3 text-xs max-w-xs">${r.new_address || '—'}</td>
+                  <td class="px-4 py-3 text-xs">${r.reason || '—'}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }
+    async function renderNotifications(el) {
+      const rows = await api('/api/notifications?limit=50');
+      el.innerHTML = `
+        <div class="flex gap-3 mb-4">
+          <button onclick="runDailyJobs()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">Запустить ежедневные задачи</button>
+          <button onclick="testNotify()" class="px-4 py-2 border rounded-lg text-sm">Тест уведомления</button>
+        </div>
+        <p class="text-xs text-slate-500 mb-3">Планировщик раз в час проверяет: просрочки, дежурных; 1-го числа — автоплан. Telegram: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID.</p>
+        <div class="bg-white rounded-xl border divide-y">
+          ${rows.length === 0 ? '<div class="p-6 text-slate-400 text-sm">Пока нет уведомлений</div>' :
+            rows.map(r => `<div class="p-4 text-sm">
+              <div class="flex justify-between mb-1">
+                <span class="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">${r.kind}</span>
+                <span class="text-xs text-slate-400">${r.created_at ? new Date(r.created_at).toLocaleString('ru-RU') : ''}</span>
+              </div>
+              <div>${r.message}</div>
+            </div>`).join('')}
+        </div>`;
+    }
+    async function runDailyJobs() {
+      try {
+        const r = await api('/api/planning/run-daily', { method: 'POST' });
+        alert(r.message); loadPage('notifications');
+      } catch (e) { alert(e.message); }
+    }
+    async function testNotify() {
+      try {
+        const r = await api('/api/notifications/test', { method: 'POST' });
+        alert(r.message); loadPage('notifications');
       } catch (e) { alert(e.message); }
     }
 
