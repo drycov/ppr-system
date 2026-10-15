@@ -281,6 +281,8 @@
       if (su) su.classList.toggle('hidden', !CURRENT_USER);
       if (sun) sun.textContent = name;
       if (sur) sur.textContent = ROLE_LABELS[role] || role;
+      const dutiesNav = document.querySelector('[data-page="duties"]');
+      if (dutiesNav) dutiesNav.classList.toggle('hidden', !CURRENT_USER || !['admin', 'head'].includes(role));
       window.__user = CURRENT_USER;
     }
 
@@ -313,6 +315,7 @@
           username: me.username,
           full_name: me.full_name,
           role: me.role,
+          department_id: me.department_id,
         };
         localStorage.setItem('ppr_user', JSON.stringify(CURRENT_USER));
       } catch (_) {}
@@ -1841,6 +1844,12 @@ async function renderStaff(el) {
     }
 
     async function renderDuties(el) {
+      if (!CURRENT_USER || !['admin', 'head'].includes(CURRENT_USER.role)) {
+        el.innerHTML = '<div class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Графики дежурств доступны администратору и руководителю подразделения.</div>';
+        return;
+      }
+      const isAdmin = CURRENT_USER.role === 'admin';
+      const myDepartmentId = CURRENT_USER.department_id == null ? null : Number(CURRENT_USER.department_id);
       const now = new Date();
       const y = now.getFullYear(), m = now.getMonth();
       const from = y + '-' + String(m+1).padStart(2,'0') + '-01';
@@ -1853,7 +1862,10 @@ async function renderStaff(el) {
         api('/api/departments?active_only=true')
       ]);
       const activeStaff = staff.filter(s => s.is_active !== false && s.can_duty !== false);
-      const departmentNames = Object.fromEntries(departments.map(d => [d.id, d.name]));
+      const visibleDepartments = isAdmin ? departments : departments.filter(d => Number(d.id) === myDepartmentId);
+      const visibleDuties = isAdmin ? duties : duties.filter(d => d.department_id == null || Number(d.department_id) === myDepartmentId);
+      const visibleToday = isAdmin ? today : today.filter(d => d.department_id == null || Number(d.department_id) === myDepartmentId);
+      const departmentNames = Object.fromEntries(visibleDepartments.map(d => [d.id, d.name]));
       const escapeDuty = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
       const shiftName = shift => ({day:'День',night:'Ночь',full:'24 ч.'})[shift] || shift;
       const scopeKey = id => id == null ? 'global' : String(id);
@@ -1879,8 +1891,8 @@ async function renderStaff(el) {
         }
         return html;
       };
-      const globalDuties = duties.filter(d => d.department_id == null);
-      const departmentCards = departments.map(dept => {
+      const globalDuties = visibleDuties.filter(d => d.department_id == null);
+      const departmentCards = visibleDepartments.map(dept => {
         const deptStaff = activeStaff.filter(s => s.department_id === dept.id);
         const deptDuties = duties.filter(d => d.department_id === dept.id);
         const assigned = deptDuties.length;
@@ -1894,19 +1906,29 @@ async function renderStaff(el) {
         '<div class="flex flex-wrap justify-between items-center gap-2 mb-3"><div><h3 class="font-semibold text-slate-900">Общий график — все подразделения</h3><p class="text-xs text-slate-600">Общие дежурства используются, если для конкретного подразделения на эту дату не назначен свой дежурный.</p></div><span class="text-xs text-slate-600">Назначений: ' + globalDuties.length + '</span></div>' +
         '<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">' + renderCalendar(null, activeStaff, globalDuties) + '</div></section>';
       const grouped = {};
-      duties.forEach(d => { (grouped[d.duty_date] ||= []).push(d); });
+      visibleDuties.forEach(d => { (grouped[d.duty_date] ||= []).push(d); });
+      const preferredDuty = list => list.find(d => d.shift === 'day' || d.shift === 'full') || list[0] || null;
       const overallRows = Object.keys(grouped).sort().map(ds => {
-        const entries = grouped[ds].map(d => '<span class="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 mr-1 mb-1"><strong>' + escapeDuty(scopeTitle(d.department_id)) + ':</strong> ' + escapeDuty(d.user ? (d.user.full_name || d.user.username) : ('ID ' + d.user_id)) + ' <span class="text-slate-500">(' + escapeDuty(shiftName(d.shift)) + ')</span> <button type="button" data-duty-id="' + d.id + '" class="duty-delete text-red-600" title="Снять дежурство">×</button></span>').join('');
-        return '<tr class="border-t"><td class="p-2 whitespace-nowrap">' + escapeDuty(ds) + '</td><td class="p-2">' + entries + '</td></tr>';
+        const dayDuties = grouped[ds];
+        const globalDuty = preferredDuty(dayDuties.filter(d => d.department_id == null));
+        const entries = visibleDepartments.map(dept => {
+          const localDuty = preferredDuty(dayDuties.filter(d => Number(d.department_id) === Number(dept.id)));
+          const effectiveDuty = localDuty || globalDuty;
+          if (!effectiveDuty) return '';
+          const name = effectiveDuty.user ? (effectiveDuty.user.full_name || effectiveDuty.user.username) : ('ID ' + effectiveDuty.user_id);
+          const source = localDuty ? 'свой график' : 'общий график';
+          return '<span class="inline-flex flex-wrap items-center gap-1 rounded bg-slate-100 px-2 py-1 mr-1 mb-1"><strong>' + escapeDuty(dept.name) + ':</strong> ' + escapeDuty(name) + ' <span class="text-slate-500">(' + escapeDuty(shiftName(effectiveDuty.shift)) + ', ' + source + ')</span></span>';
+        }).filter(Boolean).join('');
+        return entries ? '<tr class="border-t"><td class="p-2 whitespace-nowrap">' + escapeDuty(ds) + '</td><td class="p-2">' + entries + '</td></tr>' : '';
       }).join('');
       el.innerHTML = `
         <div class="mb-4 flex flex-wrap gap-3 items-center">
-          <div class="bg-teal-50 border border-teal-200 rounded-lg px-4 py-2 text-sm"><span class="text-slate-500">Сегодня дежурят:</span><strong class="ml-1">${today.length ? today.map(t => escapeDuty(t.full_name || t.username) + ' — ' + escapeDuty(scopeTitle(t.department_id))).join('; ') : 'не назначены'}</strong></div>
+          <div class="bg-teal-50 border border-teal-200 rounded-lg px-4 py-2 text-sm"><span class="text-slate-500">Сегодня дежурят:</span><strong class="ml-1">${visibleToday.length ? visibleToday.map(t => escapeDuty(t.full_name || t.username) + ' — ' + escapeDuty(scopeTitle(t.department_id))).join('; ') : 'не назначены'}</strong></div>
           <div class="bg-white border border-slate-200 rounded-lg px-4 py-2 text-sm"><span class="text-slate-500">Назначений за месяц:</span><strong class="ml-1">${duties.length}</strong></div>
-          <button id="btn-reassign" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">Переназначить ППР по графикам</button>
+          ${isAdmin ? '<button id="btn-reassign" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">Переназначить ППР по графикам</button>' : ''}
         </div>
         ${globalCard}
-        <div class="mb-5"><h3 class="font-semibold text-lg mb-3">Графики по подразделениям</h3>${departmentCards || '<p class="text-sm text-slate-500">Подразделения не найдены.</p>'}</div>
+        ${isAdmin ? '<div class="mb-5"><h3 class="font-semibold text-lg mb-3">Графики по подразделениям</h3>' + (departmentCards || '<p class="text-sm text-slate-500">Подразделения не найдены.</p>') + '</div>' : '<div class="mb-5"><h3 class="font-semibold text-lg mb-3">График подразделения</h3>' + (departmentCards || '<p class="text-sm text-amber-700">У вашей учётной записи не указано подразделение.</p>') + '</div>'}
         <section class="bg-white border border-slate-200 rounded-xl p-4"><h3 class="font-semibold text-lg mb-3">Общий календарь дежурств</h3><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-slate-500"><th class="p-2">Дата</th><th class="p-2">Назначения по всем графикам</th></tr></thead><tbody>${overallRows || '<tr><td colspan="2" class="p-3 text-slate-500">Назначений на этот месяц нет.</td></tr>'}</tbody></table></div></section>`;
       el.querySelectorAll('.duty-select').forEach(sel => {
         sel.onchange = async () => {
