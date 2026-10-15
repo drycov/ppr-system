@@ -45,10 +45,18 @@ def infer_specialty(user: User) -> str | None:
 
 
 def get_duty_user(db: Session, on_date: date) -> User | None:
+    # Единый дежурный выбирается для всей организации, независимо от подразделения.
+    # Для автоматического назначения ППР подходят дневная и круглосуточная смены.
     duty = (
         db.query(DutySchedule)
-        .filter(DutySchedule.duty_date == on_date)
-        .order_by(DutySchedule.id)
+        .join(User, DutySchedule.user_id == User.id)
+        .filter(
+            DutySchedule.duty_date == on_date,
+            DutySchedule.shift.in_(["day", "full"]),
+            User.is_active == True,
+            User.can_duty == True,
+        )
+        .order_by((DutySchedule.shift == "full").desc(), DutySchedule.id)
         .first()
     )
     return duty.user if duty else None
@@ -99,21 +107,15 @@ def resolve_assignee_for_template(
             u = heads[index % len(heads)]
             return u, False, u.full_name or u.username
 
-    # daily — предпочитаем дежурного
-    if prefer_duty and template.periodicity == "daily":
+    # Единое дежурство действует для всех подразделений и направлений ППР.
+    if prefer_duty:
         duty = get_duty_user(db, planned)
-        if duty and (department_id is None or duty.department_id == department_id):
+        if duty:
             return duty, True, duty.full_name or duty.username
 
     pool = get_users_by_specialty(db, direction, department_id=department_id)
     if not pool:
         return None, False, "Инженер ОСС"
-
-    # дежурный из пула, если есть
-    if prefer_duty:
-        duty = get_duty_user(db, planned)
-        if duty and duty in pool and (department_id is None or duty.department_id == department_id):
-            return duty, True, duty.full_name or duty.username
 
     u = pool[index % len(pool)]
     return u, False, u.full_name or u.username
