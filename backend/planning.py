@@ -5,6 +5,12 @@ from sqlalchemy.orm import Session
 from models import Object, PPRTemplate, PPRPlan, User, DutySchedule
 
 
+NETWORK_OBJECT_TYPES = {
+    "network", "us", "cod", "core_router", "core_switch",
+    "access_switch", "edge_router", "wifi_controller", "server", "ups",
+}
+
+
 PERIOD_DAYS = {
     "daily": 1,
     "monthly": 30,
@@ -243,6 +249,10 @@ def generate_plans_for_period(
         relevant = [
             t for t in object_templates
             if obj.object_type in (t.object_types or [])
+            or (
+                obj.object_type in NETWORK_OBJECT_TYPES
+                and "network" in (t.object_types or [])
+            )
         ]
         if not relevant:
             continue
