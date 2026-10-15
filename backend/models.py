@@ -101,6 +101,8 @@ class Department(Base):
     is_active = Column(Boolean, default=True)
     sort_order = Column(Integer, default=0)
     notes = Column(Text, nullable=True)
+    # PPR templates disabled specifically for this department.
+    excluded_template_ids = Column(JSON, default=list, nullable=False)
 
     positions = relationship("Position", back_populates="department")
     users = relationship("User", back_populates="department")
