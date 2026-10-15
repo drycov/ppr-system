@@ -943,7 +943,7 @@
       const checks = await api('/api/daily-checks?limit=20');
       const tpl = await api('/api/daily-checks/template');
       const items = tpl.items || [];
-      const today = new Date().toISOString().slice(0, 10);
+      const today = new Date().getFullYear() + '-' + String(new Date().getMonth()+1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0');
       const me = (window.__user && (window.__user.full_name || window.__user.username)) || '';
 
       const checklistHtml = items.map((it, i) => `
@@ -1533,9 +1533,9 @@ async function importExcelNow() {
       const defaultFrom = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2, '0') + '-01';
       const fromDate = prompt('Дата начала периода (ГГГГ-ММ-ДД):', defaultFrom);
       if (!fromDate) return;
-      const toDate = prompt('Дата окончания периода (ГГГГ-ММ-ДД):', today.toISOString().slice(0, 10));
+      const toDate = prompt('Дата окончания периода (ГГГГ-ММ-ДД):', today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0'));
       if (!toDate) return;
-      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(fromDate) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(toDate) || fromDate > toDate) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromDate > toDate) {
         alert('Укажите корректные даты в формате ГГГГ-ММ-ДД; дата начала должна быть не позже даты окончания.');
         return;
       }
@@ -1549,7 +1549,7 @@ async function importExcelNow() {
         return;
       }
       const factDate = prompt('Дата выполнения (ГГГГ-ММ-ДД):', new Date().toISOString().slice(0, 10));
-      if (!factDate || !/^\\d{4}-\\d{2}-\\d{2}$/.test(factDate)) return;
+      if (!factDate || !/^\d{4}-\d{2}-\d{2}$/.test(factDate)) return;
       if (!confirm('ВНИМАНИЕ: задача будет отмечена как выполненная с явной пометкой «ФИКТИВНАЯ ОТМЕТКА». Продолжить?')) return;
       try {
         const query = new URLSearchParams({ reason: reason.trim(), fact_date: factDate });
