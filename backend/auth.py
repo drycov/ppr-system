@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy.orm import Session
 from database import get_db
 from models import User
@@ -14,7 +14,6 @@ SECRET_KEY = "satory-ppr-oss-apk-2026-secret-key-change-in-prod"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 12
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
@@ -36,21 +35,27 @@ class UserOut(BaseModel):
 
 
 def verify_password(plain: str, hashed: str) -> bool:
+    """Проверяет bcrypt-хеши напрямую, без несовместимого слоя Passlib."""
     if not hashed:
         return False
     if not hashed.startswith("$2"):
+        # Совместимость с legacy-паролями в открытом виде.
         return plain == hashed
     try:
-        return pwd_context.verify(plain, hashed)
-    except Exception:
+        raw = plain.encode("utf-8")
+        if len(raw) > 72:
+            return False
+        return bcrypt.checkpw(raw, hashed.encode("utf-8"))
+    except (ValueError, TypeError):
         return False
 
 
 def get_password_hash(password: str) -> str:
-    # bcrypt принимает максимум 72 байта; passlib + bcrypt>=4.1 часто падают без явной обрезки
-    if isinstance(password, str):
-        password = password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
-    return pwd_context.hash(password)
+    """Создаёт bcrypt-хеш; длинные пароли не обрезаются молча."""
+    raw = password.encode("utf-8")
+    if len(raw) > 72:
+        raise ValueError("Пароль для bcrypt не должен превышать 72 байта UTF-8")
+    return bcrypt.hashpw(raw, bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -66,7 +71,7 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
         return None
     if not verify_password(password, user.hashed_password or ""):
         return None
-    if user.hashed_password and not user.hashed_password.startswith("$2"):
+    if user.hashed_password and not user.hashed_password.startswith("$2") and len(password.encode("utf-8")) <= 72:
         user.hashed_password = get_password_hash(password)
         db.commit()
     return user
