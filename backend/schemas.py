@@ -26,8 +26,10 @@ class ObjectCreate(ObjectBase):
 
 
 class ObjectUpdate(BaseModel):
+    code: Optional[str] = None
     name: Optional[str] = None
     address: Optional[str] = None
+    object_type: Optional[str] = None
     cameras_count: Optional[int] = None
     status: Optional[str] = None
     responsible_default: Optional[str] = None
