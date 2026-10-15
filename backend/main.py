@@ -1262,8 +1262,10 @@ def list_notifications(limit: int = 50, user: User = Depends(require_user), db: 
 
 @app.post("/api/notifications/test")
 def test_notification(user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    notify_message(db, "manual", f"Тестовое уведомление от {user.full_name or user.username}")
-    return {"ok": True, "message": "Запись создана. Telegram — если заданы TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID"}
+    sent = notify_message(db, "manual", f"Тестовое уведомление от {user.full_name or user.username}")
+    if sent:
+        return {"ok": True, "telegram_sent": True, "message": "Тестовое уведомление отправлено в Telegram и записано в журнал."}
+    return {"ok": True, "telegram_sent": False, "message": "Запись добавлена в журнал, но Telegram не отправлен. Проверьте, что интеграция включена, токен и Chat ID заданы, а бот имеет доступ к чату."}
 
 
 @app.post("/api/planning/run-daily")
