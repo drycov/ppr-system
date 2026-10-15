@@ -443,14 +443,16 @@
     }
 
     // ----- Plans -----
-    let plansFilter = { status: '', mine: false };
+    let plansFilter = { status: '', mine: false, department_id: '' };
 
     async function renderPlans(el) {
       const params = new URLSearchParams();
       if (plansFilter.status) params.set('status', plansFilter.status);
+      if (plansFilter.department_id && !plansFilter.mine) params.set('department_id', plansFilter.department_id);
       params.set('limit', '100');
       const url = plansFilter.mine ? ('/api/plans/my?' + params) : ('/api/plans?' + params);
       const [plans, dist, departments] = await Promise.all([api(url), api('/api/planning/distribution').catch(() => null), api('/api/departments?active_only=true').catch(() => [])]);
+      const departmentNames = new Map(departments.map(d => [d.id, d.name]));
       const now = new Date();
       const y = now.getFullYear();
       const mo = now.getMonth() + 1;
@@ -468,7 +470,7 @@
                   ).join('')}
                 </select>
                 <select id="gen-department" class="border rounded-lg px-2 py-1.5 text-sm">
-                  <option value="">Все подразделения (общий план)</option>
+                  <option value="">Все подразделения</option>
                   ${departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
                 </select>
                 <select id="gen-dir" class="border rounded-lg px-2 py-1.5 text-sm">
@@ -505,8 +507,12 @@
             <option value="done" ${plansFilter.status==='done'?'selected':''}>Исполнено</option>
             <option value="overdue" ${plansFilter.status==='overdue'?'selected':''}>Просрочено</option>
           </select>
+          <select id="filter-department" class="border border-slate-300 rounded-lg px-3 py-2 text-sm">
+            <option value="">Все подразделения</option>
+            ${departments.map(d => `<option value="${d.id}" ${String(plansFilter.department_id)===String(d.id)?'selected':''}>${d.name}</option>`).join('')}
+          </select>
           <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="filter-mine" ${plansFilter.mine?'checked':''}> Только мои</label>
-          <button onclick="plansFilter.status=$('#filter-status').value; plansFilter.mine=$('#filter-mine').checked; loadPage('plans')" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm">Применить</button>
+          <button onclick="plansFilter.status=$('#filter-status').value; plansFilter.mine=$('#filter-mine').checked; plansFilter.department_id=$('#filter-department').value; loadPage('plans')" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm">Применить</button>
           <button onclick="openNewPlanModal()" class="ml-auto px-4 py-2 bg-teal-700 text-white rounded-lg text-sm hover:bg-teal-800">+ Новая задача</button>
         </div>
         <div class="bg-white rounded-xl border border-slate-100 overflow-hidden">
@@ -528,7 +534,8 @@
                     <td class="px-4 py-3 whitespace-nowrap">${formatDate(p.planned_date)}${p.fact_date ? '<br><span class="text-xs text-teal-600">факт: '+formatDate(p.fact_date)+'</span>' : ''}</td>
                     <td class="px-4 py-3">
                       <div class="font-medium">${p.title || '—'}</div>
-                      ${p.object ? `<div class="text-xs text-slate-500">${p.object.code} · ${p.object.address || ''}</div>` : '<div class="text-xs text-slate-400">Общесистемная</div>'}
+                      ${p.object ? `<div class="text-xs text-slate-500">${p.object.code} · ${p.object.address || ''}</div>` : '<div class="text-xs text-slate-400">Без объекта</div>'}
+                      ${p.department_id && departmentNames.get(p.department_id) ? `<div class="text-xs text-indigo-600">${departmentNames.get(p.department_id)}</div>` : ''}
                     </td>
                     <td class="px-4 py-3">${p.responsible || '—'}${p.assigned_by_duty ? ' <span class="text-[10px] text-amber-600">деж.</span>' : ''}</td>
                     <td class="px-4 py-3">${statusBadge(p.status)}</td>
@@ -589,13 +596,28 @@
       }
     }
 
-    function openNewPlanModal() {
+    async function openNewPlanModal() {
+      const [objects, departments] = await Promise.all([api('/api/objects?limit=200'), api('/api/departments?active_only=true')]);
       $('#modal-title').textContent = 'Новая задача ППР';
       $('#modal-body').innerHTML = `
         <form id="new-plan-form" class="space-y-4">
           <div>
             <label class="block text-sm font-medium mb-1">Название</label>
             <input name="title" class="w-full border rounded-lg px-3 py-2 text-sm" required placeholder="ППР ИНТ-01 — октябрь">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Подразделение</label>
+            <select name="department_id" class="w-full border rounded-lg px-3 py-2 text-sm" required>
+              <option value="">Выберите подразделение</option>
+              ${departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Объект</label>
+            <select name="object_id" class="w-full border rounded-lg px-3 py-2 text-sm" required>
+              <option value="">Выберите объект</option>
+              ${objects.map(o => `<option value="${o.id}">${o.code} — ${o.address || o.name || ''}</option>`).join('')}
+            </select>
           </div>
           <div>
             <label class="block text-sm font-medium mb-1">Дата плана</label>
@@ -620,6 +642,8 @@
             method: 'POST',
             body: JSON.stringify({
               title: fd.get('title'),
+              department_id: Number(fd.get('department_id')),
+              object_id: fd.get('object_id') ? Number(fd.get('object_id')) : null,
               planned_date: fd.get('planned_date'),
               responsible: fd.get('responsible'),
               status: 'planned'
@@ -634,9 +658,11 @@
     }
 
     async function openEditPlanModal(planId) {
-      const [plan, staff] = await Promise.all([
+      const [plan, staff, objects, departments] = await Promise.all([
         api('/api/plans/' + planId),
         api('/api/staff?active_only=true&can_do_ppr=true').catch(() => api('/api/staff?active_only=true')),
+        api('/api/objects?limit=200'),
+        api('/api/departments?active_only=true'),
       ]);
       const st = plan.status || 'planned';
       $('#modal-title').textContent = 'Редактирование задачи #' + planId;
@@ -645,6 +671,20 @@
           <div>
             <label class="block text-slate-600 mb-1">Название</label>
             <input name="title" value="${(plan.title || '').replace(/"/g, '&quot;')}" class="w-full border rounded-lg px-3 py-2" required>
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Подразделение</label>
+            <select name="department_id" class="w-full border rounded-lg px-3 py-2" required>
+              <option value="">Выберите подразделение</option>
+              ${departments.map(d => `<option value="${d.id}" ${Number(plan.department_id)===Number(d.id)?'selected':''}>${d.name}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Объект</label>
+            <select name="object_id" class="w-full border rounded-lg px-3 py-2" required>
+              <option value="">Выберите объект</option>
+              ${objects.map(o => `<option value="${o.id}" ${Number(plan.object_id)===Number(o.id)?'selected':''}>${o.code} — ${o.address || o.name || ''}</option>`).join('')}
+            </select>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -714,6 +754,8 @@
         const workRaw = (fd.get('work_types_done') || '').trim();
         const body = {
           title: fd.get('title'),
+          department_id: Number(fd.get('department_id')),
+          object_id: fd.get('object_id') ? Number(fd.get('object_id')) : null,
           planned_date: fd.get('planned_date'),
           status: fd.get('status'),
           responsible: fd.get('responsible') || null,
@@ -752,8 +794,7 @@
       if (objectsFilter.type) params.set('object_type', objectsFilter.type);
       if (objectsFilter.search) params.set('search', objectsFilter.search);
       params.set('limit', '200');
-      const [objects, departments] = await Promise.all([api('/api/objects?' + params), api('/api/departments?active_only=true').catch(() => [])]);
-      const departmentNames = Object.fromEntries(departments.map(d => [d.id, d.name]));
+      const objects = await api('/api/objects?' + params);
 
       el.innerHTML = `
         <div class="flex flex-wrap gap-3 mb-4 items-center">
@@ -790,7 +831,6 @@
                 <th class="px-4 py-3 font-medium">Код</th>
                 <th class="px-4 py-3 font-medium">Адрес / Название</th>
                 <th class="px-4 py-3 font-medium">Тип</th>
-                <th class="px-4 py-3 font-medium">Подразделение</th>
                 <th class="px-4 py-3 font-medium">Камер</th>
                 <th class="px-4 py-3 font-medium">Ответственный</th>
                 <th class="px-4 py-3 font-medium">Статус</th>
@@ -798,13 +838,12 @@
               </tr>
             </thead>
             <tbody>
-              ${objects.length === 0 ? '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Нет объектов — нажмите «Добавить объект»</td></tr>' :
+              ${objects.length === 0 ? '<tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">Нет объектов — нажмите «Добавить объект»</td></tr>' :
                 objects.map(o => `
                 <tr class="table-row border-t border-slate-50">
                   <td class="px-4 py-3 font-mono text-xs font-medium">${o.code}</td>
                   <td class="px-4 py-3 max-w-xs truncate" title="${(o.address || '').replace(/"/g,'&quot;')}">${o.address || o.name || '—'}</td>
                   <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${typeLabel(o.object_type)}</span></td>
-                  <td class="px-4 py-3 text-xs">${departmentNames[o.department_id] || 'Не назначено'}</td>
                   <td class="px-4 py-3">${o.cameras_count || '—'}</td>
                   <td class="px-4 py-3 text-xs">${o.responsible_default || '—'}</td>
                   <td class="px-4 py-3"><span class="text-xs ${o.status==='active'?'text-teal-700':'text-slate-400'}">${o.status}</span></td>
@@ -827,7 +866,6 @@
         obj = await api('/api/objects/' + objectId);
       }
       const isEdit = !!obj;
-      const departments = await api('/api/departments?active_only=true').catch(() => []);
       const typeOpts = [
         ['camera_integration', 'ИНТ (интеграция камер)'],
         ['ovn', 'ОВН (уличные)'],
@@ -869,13 +907,6 @@
           <div>
             <label class="block text-slate-600 mb-1">Адрес</label>
             <input name="address" value="${obj ? (obj.address||'').replace(/"/g,'&quot;') : ''}" class="w-full border rounded-lg px-3 py-2" placeholder="г. Усть-Каменогорск, ...">
-          </div>
-          <div>
-            <label class="block text-slate-600 mb-1">Подразделение</label>
-            <select name="department_id" class="w-full border rounded-lg px-3 py-2">
-              <option value="">Не назначено</option>
-              ${departments.map(d => `<option value="${d.id}" ${obj && Number(obj.department_id)===Number(d.id)?'selected':''}>${d.name}</option>`).join('')}
-            </select>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -933,7 +964,6 @@
           cameras_count: parseInt(fd.get('cameras_count') || '0', 10) || 0,
           status: fd.get('status'),
           responsible_default: fd.get('responsible_default') || null,
-          department_id: fd.get('department_id') ? parseInt(fd.get('department_id'), 10) : null,
           notes: fd.get('notes') || null,
         };
         try {
@@ -1146,7 +1176,8 @@
 
     // ----- Templates -----
     async function renderTemplates(el) {
-      const templates = await api('/api/templates');
+      const [templates, departments] = await Promise.all([api('/api/templates'), api('/api/departments?active_only=true')]);
+      const departmentNames = new Map(departments.map(d => [d.id, d.name]));
       const dirMeta = {
         sysadmin: { title: 'Системные администраторы', cls: 'border-indigo-200 bg-indigo-50/50', badge: 'bg-indigo-100 text-indigo-800' },
         installer: { title: 'Монтажники', cls: 'border-amber-200 bg-amber-50/50', badge: 'bg-amber-100 text-amber-900' },
@@ -1185,17 +1216,35 @@
                       '<span class="text-xs text-slate-600">' + (periodRu[tpl.periodicity] || tpl.periodicity) + '</span>' +
                     '</div>' +
                     '<h4 class="font-medium text-sm mb-1 leading-snug">' + tpl.name + '</h4>' +
+                    '<p class="text-xs text-slate-600 mb-2">' + ((tpl.department_ids || []).length ? 'Подразделения: ' + (tpl.department_ids || []).map(function(id) { return departmentNames.get(id) || ('#' + id); }).join(', ') : 'Общий регламент') + '</p>' +
                     '<p class="text-xs text-slate-500 mb-2">' + (tpl.description || '') + '</p>' +
                     '<div class="flex flex-wrap gap-1">' +
                       (tpl.work_items || []).slice(0,6).map(function(w) {
                         return '<span class="text-[10px] bg-white/70 border border-black/5 px-1.5 py-0.5 rounded">' + w + '</span>';
                       }).join('') +
-                    '</div></div>';
+                    '</div><button type="button" class="tpl-departments mt-3 text-xs px-3 py-1.5 border rounded-lg" data-id="' + tpl.id + '">Назначить подразделения</button></div>';
                 }).join('') +
               '</div></div>';
           }).join('')}
         </div>
       `;
+      el.querySelectorAll('.tpl-departments').forEach(function(btn) {
+        btn.onclick = async function() {
+          const tpl = templates.find(function(t) { return t.id === Number(btn.dataset.id); });
+          if (!tpl) return;
+          const departmentOptions = departments.map(function(d) { return d.id + ' — ' + d.name; }).join('\\n');
+          const value = prompt('ID подразделений через запятую. Пусто — общий регламент для всех.\\n' + departmentOptions, (tpl.department_ids || []).join(','));
+          if (value === null) return;
+          const ids = value.trim() ? value.split(',').map(function(v) { return Number(v.trim()); }) : [];
+          if (ids.some(function(id) { return !Number.isInteger(id) || !departments.some(function(d) { return d.id === id; }); })) {
+            alert('Укажите существующие ID подразделений через запятую.'); return;
+          }
+          try {
+            await api('/api/templates/' + tpl.id + '/departments', { method: 'PATCH', body: JSON.stringify({ department_ids: ids }) });
+            loadPage('templates');
+          } catch (e) { alert(e.message); }
+        };
+      });
       const b = document.getElementById('tpl-reseed');
       if (b) b.onclick = async function() {
         try {

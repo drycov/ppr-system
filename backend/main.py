@@ -44,13 +44,16 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
-    # Добавляем подразделение объектам в существующей БД без потери данных.
-    columns = {column["name"] for column in inspect(engine).get_columns("objects")}
-    if "department_id" not in columns:
+    # Подразделение относится к задаче ППР, объект не закрепляется за подразделением.
+    plan_columns = {column["name"] for column in inspect(engine).get_columns("ppr_plans")}
+    if "department_id" not in plan_columns:
         with engine.begin() as conn:
-            conn.exec_driver_sql("ALTER TABLE objects ADD COLUMN department_id INTEGER REFERENCES departments(id)")
-    with engine.begin() as conn:
-        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_objects_department_id ON objects (department_id)")
+            conn.exec_driver_sql("ALTER TABLE ppr_plans ADD COLUMN department_id INTEGER REFERENCES departments(id)")
+            conn.exec_driver_sql("UPDATE ppr_plans SET department_id = (SELECT department_id FROM users WHERE users.id = ppr_plans.assignee_id) WHERE department_id IS NULL AND assignee_id IS NOT NULL")
+    template_columns = {column["name"] for column in inspect(engine).get_columns("ppr_templates")}
+    if "department_ids" not in template_columns:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TABLE ppr_templates ADD COLUMN department_ids JSON NOT NULL DEFAULT '[]'")
     # Автосид при первом запуске
     db = next(get_db())
     try:
@@ -185,6 +188,25 @@ def update_object(object_id: int, data: schemas.ObjectUpdate, db: Session = Depe
 def list_templates(db: Session = Depends(get_db)):
     return db.query(PPRTemplate).filter(PPRTemplate.is_active == True).order_by(PPRTemplate.code).all()
 
+@app.patch("/api/templates/{template_id}/departments")
+def assign_template_departments(
+    template_id: int,
+    payload: schemas.PPRTemplateDepartmentsUpdate,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    template = db.query(PPRTemplate).filter(PPRTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(404, "Регламент не найден")
+    ids = sorted(set(payload.department_ids))
+    if ids:
+        found = {row[0] for row in db.query(Department.id).filter(Department.id.in_(ids)).all()}
+        if set(ids) - found:
+            raise HTTPException(422, f"Не найдены подразделения: {sorted(set(ids) - found)}")
+    template.department_ids = ids
+    db.commit()
+    return {"ok": True, "template_id": template.id, "department_ids": ids}
+
 
 @app.get("/api/regulations")
 def get_regulations():
@@ -245,6 +267,7 @@ def get_regulations():
 def list_plans(
     status: Optional[str] = None,
     object_id: Optional[int] = None,
+    department_id: Optional[int] = None,
     responsible: Optional[str] = None,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
@@ -257,6 +280,8 @@ def list_plans(
         q = q.filter(PPRPlan.status == status)
     if object_id:
         q = q.filter(PPRPlan.object_id == object_id)
+    if department_id is not None:
+        q = q.filter(PPRPlan.department_id == department_id)
     if responsible:
         q = q.filter(PPRPlan.responsible.ilike(f"%{responsible}%"))
     if from_date:
@@ -268,6 +293,10 @@ def list_plans(
 
 @app.post("/api/plans", response_model=schemas.PPRPlanOut)
 def create_plan(data: schemas.PPRPlanCreate, db: Session = Depends(get_db)):
+    if data.department_id is not None and not db.query(Department.id).filter(Department.id == data.department_id).first():
+        raise HTTPException(422, "Подразделение не найдено")
+    if data.object_id is not None and not db.query(Object.id).filter(Object.id == data.object_id).first():
+        raise HTTPException(422, "Объект не найден")
     plan = PPRPlan(**data.model_dump())
     db.add(plan)
     db.commit()
@@ -306,6 +335,10 @@ def update_plan(plan_id: int, data: schemas.PPRPlanUpdate, db: Session = Depends
     if not plan:
         raise HTTPException(404, "Задача не найдена")
     payload = data.model_dump(exclude_unset=True)
+    if payload.get("department_id") is not None and not db.query(Department.id).filter(Department.id == payload["department_id"]).first():
+        raise HTTPException(422, "Подразделение не найдено")
+    if payload.get("object_id") is not None and not db.query(Object.id).filter(Object.id == payload["object_id"]).first():
+        raise HTTPException(422, "Объект не найден")
     # если сменили исполнителя — подтянуть ФИО
     if "assignee_id" in payload and payload["assignee_id"]:
         u = db.query(User).filter(User.id == payload["assignee_id"]).first()
@@ -769,7 +802,6 @@ def create_staff(data: schemas.StaffCreate, user: User = Depends(require_user), 
         hashed_password=get_password_hash(data.password),
         role=data.role,
         position=pos_name,
-        department_id=data.department_id,
         position_id=data.position_id,
         phone=data.phone,
         email=data.email,
