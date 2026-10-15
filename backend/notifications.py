@@ -1,27 +1,45 @@
-"""Уведомления: журнал + опционально Telegram webhook."""
+"""Уведомления: журнал + отправка в Telegram с настройками из Web UI."""
 import os
 import json
 import logging
 from datetime import date, datetime
 from urllib.request import Request, urlopen
-from urllib.error import URLError
 
 logger = logging.getLogger("ppr.notifications")
 
-# TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID — из переменных окружения
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+def _telegram_config(db=None):
+    """Настройки из БД имеют приоритет; переменные окружения сохраняют обратную совместимость."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    enabled = True
+    if db is not None:
+        try:
+            from settings_service import get_setting
+            enabled = bool(get_setting(db, "integrations.telegram.enabled"))
+            configured_token = get_setting(db, "integrations.telegram.bot_token")
+            configured_chat = get_setting(db, "integrations.telegram.chat_id")
+            if configured_token:
+                token = configured_token
+            if configured_chat:
+                chat_id = configured_chat
+        except Exception:
+            logger.exception("failed to read Telegram settings")
+            return False, "", ""
+    return enabled, token, chat_id
 
 
-def _send_telegram(text: str) -> bool:
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+def _send_telegram(text: str, db=None) -> bool:
+    enabled, token, chat_id = _telegram_config(db)
+    if not enabled or not token or not chat_id:
         return False
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        body = json.dumps({"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}).encode()
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        body = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "HTML"}).encode()
         req = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
         with urlopen(req, timeout=10) as resp:
-            return resp.status == 200
+            payload = json.loads(resp.read().decode("utf-8"))
+            return resp.status == 200 and payload.get("ok") is True
     except Exception as e:
         logger.warning("telegram failed: %s", e)
         return False
@@ -42,7 +60,7 @@ def _log(db, kind: str, message: str, meta: dict | None = None):
 
 def notify_message(db, kind: str, message: str, meta: dict | None = None):
     _log(db, kind, message, meta)
-    _send_telegram(f"<b>ППР ОСС</b>\n{message}")
+    return _send_telegram(f"<b>ППР ОСС</b>\n{message}", db=db)
 
 
 def notify_overdue(db, count: int):
