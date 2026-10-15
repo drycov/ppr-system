@@ -79,7 +79,7 @@ async def _poll(token: str):
 
     try:
         logger.info("Starting aiogram polling")
-        await dp.start_polling(bot, close_bot_session=False)
+        await dp.start_polling(bot, close_bot_session=False, handle_signals=False)
     finally:
         await bot.session.close()
         _dispatcher = None
