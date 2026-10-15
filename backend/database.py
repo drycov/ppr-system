@@ -57,3 +57,7 @@ def migrate_user_fio_columns():
         print(f"✓ Миграция users: добавлены колонки FIO ({len(alters)})")
     except Exception as e:
         print(f"⚠ migrate_user_fio_columns: {e}")
+
+
+# Авто-миграция при импорте модуля (после create_all в startup тоже безопасно)
+migrate_user_fio_columns()
