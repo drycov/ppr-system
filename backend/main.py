@@ -90,6 +90,29 @@ def get_dashboard(db: Session = Depends(get_db)):
 
 
 # ========== Objects ==========
+
+@app.get("/api/object-types")
+def list_object_types():
+    """Справочник типов объектов для UI."""
+    return [
+        {"code": "camera_integration", "name": "ИНТ (камеры)", "group": "apk"},
+        {"code": "ovn", "name": "ОВН", "group": "apk"},
+        {"code": "voles", "name": "ВОЛС", "group": "apk"},
+        {"code": "sip", "name": "СИП", "group": "apk"},
+        {"code": "us", "name": "УС (узел связи)", "group": "network"},
+        {"code": "cod", "name": "ЦОД", "group": "network"},
+        {"code": "core_router", "name": "Роутер ядра", "group": "network"},
+        {"code": "core_switch", "name": "Коммутатор ядра", "group": "network"},
+        {"code": "access_switch", "name": "Коммутатор доступа", "group": "network"},
+        {"code": "edge_router", "name": "Граничный роутер", "group": "network"},
+        {"code": "wifi_controller", "name": "Контроллер Wi-Fi", "group": "network"},
+        {"code": "server", "name": "Сервер", "group": "network"},
+        {"code": "ups", "name": "ИБП", "group": "network"},
+        {"code": "network", "name": "Сеть ОСС (общее)", "group": "network"},
+        {"code": "other", "name": "Прочее", "group": "other"},
+    ]
+
+
 @app.get("/api/objects", response_model=List[schemas.ObjectOut])
 def list_objects(
     object_type: Optional[str] = None,
