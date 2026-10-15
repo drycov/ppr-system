@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ППР ОСС / АПК — Satory UKG</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root { --primary: #0f766e; --primary-dark: #0d9488; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    .sidebar-link.active { background: rgba(15, 118, 110, 0.15); color: #0f766e; border-right: 3px solid #0f766e; }
+    .status-planned { background: #fef3c7; color: #92400e; }
+    .status-done { background: #d1fae5; color: #065f46; }
+    .status-overdue { background: #fee2e2; color: #991b1b; }
+    .status-in_progress { background: #dbeafe; color: #1e40af; }
+    .card { transition: box-shadow .15s; }
+    .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.08); }
+    .table-row:hover { background: #f8fafc; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <div class="flex h-screen overflow-hidden">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0">
+      <div class="p-5 border-b border-slate-100">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-lg bg-teal-700 flex items-center justify-center text-white font-bold text-lg">П</div>
+          <div>
+            <div class="font-semibold text-sm leading-tight">Система ППР</div>
+            <div class="text-xs text-slate-500">ОСС / АПК Усть-Каменогорск</div>
+          </div>
+        </div>
+      </div>
+      <nav class="flex-1 p-3 space-y-1 overflow-y-auto" id="nav">
+        <a href="#" data-page="dashboard" class="sidebar-link active flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i> Дашборд
+        </a>
+        <a href="#" data-page="plans" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="clipboard-list" class="w-4 h-4"></i> Задачи ППР
+        </a>
+        <a href="#" data-page="objects" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="map-pin" class="w-4 h-4"></i> Объекты
+        </a>
+        <a href="#" data-page="daily" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="calendar-check" class="w-4 h-4"></i> Ежедневный контроль
+        </a>
+        <a href="#" data-page="regulations" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="book-open" class="w-4 h-4"></i> Регламент
+        </a>
+        <a href="#" data-page="templates" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="list-checks" class="w-4 h-4"></i> Шаблоны работ
+        </a>
+      </nav>
+      <div class="p-4 border-t border-slate-100 text-xs text-slate-500">
+        <div class="font-medium text-slate-700">ТОО «Satory Company ltd»</div>
+        <div>филиал г. Усть-Каменогорск</div>
+        <div class="mt-1">ОСС · 2026</div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+      <header class="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0">
+        <h1 class="text-lg font-semibold" id="page-title">Дашборд</h1>
+        <div class="flex items-center gap-4 text-sm text-slate-600">
+          <span id="current-date"></span>
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center font-semibold text-xs">ДИ</div>
+            <span class="hidden sm:inline">Рыков Д.И.</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="flex-1 overflow-y-auto p-6" id="content">
+        <!-- dynamic content -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+      <div class="p-5 border-b flex justify-between items-center">
+        <h3 class="font-semibold text-lg" id="modal-title">Заголовок</h3>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <div class="p-5" id="modal-body"></div>
+    </div>
+  </div>
+
+  <script>
+    const API = '';  // same origin
+
+    // ========== Utils ==========
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    function formatDate(d) {
+      if (!d) return '—';
+      const dt = new Date(d);
+      return dt.toLocaleDateString('ru-RU');
+    }
+
+    function statusBadge(status) {
+      const map = {
+        planned: 'Запланировано',
+        done: 'Исполнено',
+        overdue: 'Просрочено',
+        in_progress: 'В работе',
+        cancelled: 'Отменено'
+      };
+      return `<span class="status-${status} text-xs font-medium px-2 py-0.5 rounded-full">${map[status] || status}</span>`;
+    }
+
+    function typeLabel(t) {
+      const map = {
+        camera_integration: 'ИНТ (камеры)',
+        ovn: 'ОВН',
+        voles: 'ВОЛС',
+        sip: 'СИП',
+        network: 'Сеть ОСС',
+        other: 'Прочее'
+      };
+      return map[t] || t;
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(API + path, {
+        headers: { 'Content-Type': 'application/json', ...opts.headers },
+        ...opts
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || res.statusText);
+      }
+      return res.json();
+    }
+
+    // ========== Navigation ==========
+    const titles = {
+      dashboard: 'Дашборд',
+      plans: 'Задачи ППР',
+      objects: 'Объекты',
+      daily: 'Ежедневный операционный контроль',
+      regulations: 'Регламент ППР',
+      templates: 'Шаблоны работ'
+    };
+
+    $$('.sidebar-link').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        $$('.sidebar-link').forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+        const page = link.dataset.page;
+        $('#page-title').textContent = titles[page] || page;
+        loadPage(page);
+      });
+    });
+
+    // ========== Pages ==========
+    async function loadPage(page) {
+      const content = $('#content');
+      content.innerHTML = '<div class="flex justify-center py-20"><div class="animate-spin w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full"></div></div>';
+      try {
+        if (page === 'dashboard') await renderDashboard(content);
+        else if (page === 'plans') await renderPlans(content);
+        else if (page === 'objects') await renderObjects(content);
+        else if (page === 'daily') await renderDaily(content);
+        else if (page === 'regulations') await renderRegulations(content);
+        else if (page === 'templates') await renderTemplates(content);
+      } catch (e) {
+        content.innerHTML = `<div class="bg-red-50 text-red-700 p-4 rounded-lg">Ошибка: ${e.message}</div>`;
+      }
+      lucide.createIcons();
+    }
+
+    // ----- Dashboard -----
+    async function renderDashboard(el) {
+      const [stats, byType, completion] = await Promise.all([
+        api('/api/dashboard'),
+        api('/api/stats/by-type'),
+        api('/api/stats/completion')
+      ]);
+
+      el.innerHTML = `
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div class="card bg-white rounded-xl p-5 border border-slate-100">
+            <div class="text-sm text-slate-500 mb-1">Всего объектов</div>
+            <div class="text-3xl font-bold text-slate-800">${stats.total_objects}</div>
+            <div class="text-xs text-slate-400 mt-1">активных: ${stats.active_objects}</div>
+          </div>
+          <div class="card bg-white rounded-xl p-5 border border-slate-100">
+            <div class="text-sm text-slate-500 mb-1">Выполнено ППР</div>
+            <div class="text-3xl font-bold text-teal-700">${stats.done_ppr}</div>
+            <div class="text-xs text-slate-400 mt-1">${stats.completion_percent}% от плана</div>
+          </div>
+          <div class="card bg-white rounded-xl p-5 border border-slate-100">
+            <div class="text-sm text-slate-500 mb-1">Запланировано</div>
+            <div class="text-3xl font-bold text-amber-600">${stats.planned_ppr}</div>
+            <div class="text-xs text-red-500 mt-1">просрочено: ${stats.overdue_ppr}</div>
+          </div>
+          <div class="card bg-white rounded-xl p-5 border border-slate-100">
+            <div class="text-sm text-slate-500 mb-1">Ежедневный контроль</div>
+            <div class="text-3xl font-bold text-slate-800">${stats.daily_checks_this_month}</div>
+            <div class="text-xs text-slate-400 mt-1">записей в этом месяце</div>
+          </div>
+        </div>
+
+        <div class="grid lg:grid-cols-2 gap-6">
+          <div class="bg-white rounded-xl border border-slate-100 p-5">
+            <h3 class="font-semibold mb-4">Объекты по типам</h3>
+            <canvas id="chart-types" height="200"></canvas>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-100 p-5">
+            <h3 class="font-semibold mb-4">Статус выполнения ППР</h3>
+            <canvas id="chart-status" height="200"></canvas>
+          </div>
+        </div>
+
+        <div class="mt-6 bg-white rounded-xl border border-slate-100 p-5">
+          <h3 class="font-semibold mb-3">Быстрые действия</h3>
+          <div class="flex flex-wrap gap-3">
+            <button onclick="document.querySelector('[data-page=plans]').click()" class="px-4 py-2 bg-teal-700 text-white rounded-lg text-sm hover:bg-teal-800">Открыть задачи ППР</button>
+            <button onclick="document.querySelector('[data-page=daily]').click()" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900">Сдать ежедневный контроль</button>
+            <button onclick="document.querySelector('[data-page=regulations]').click()" class="px-4 py-2 border border-slate-300 rounded-lg text-sm hover:bg-slate-50">Посмотреть регламент</button>
+          </div>
+        </div>
+      `;
+
+      // Charts
+      const typeLabels = Object.keys(byType).map(typeLabel);
+      const typeData = Object.values(byType);
+      new Chart($('#chart-types'), {
+        type: 'doughnut',
+        data: {
+          labels: typeLabels,
+          datasets: [{ data: typeData, backgroundColor: ['#0f766e', '#14b8a6', '#5eead4', '#99f6e4', '#ccfbf1'] }]
+        },
+        options: { plugins: { legend: { position: 'bottom' } } }
+      });
+
+      new Chart($('#chart-status'), {
+        type: 'bar',
+        data: {
+          labels: ['Выполнено', 'Запланировано', 'Просрочено'],
+          datasets: [{
+            data: [completion.done, completion.planned, completion.overdue],
+            backgroundColor: ['#10b981', '#f59e0b', '#ef4444']
+          }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }
+
+    // ----- Plans -----
+    let plansFilter = { status: '' };
+
+    async function renderPlans(el) {
+      const params = new URLSearchParams();
+      if (plansFilter.status) params.set('status', plansFilter.status);
+      params.set('limit', '50');
+      const plans = await api('/api/plans?' + params);
+
+      el.innerHTML = `
+        <div class="flex flex-wrap gap-3 mb-4 items-center">
+          <select id="filter-status" class="border border-slate-300 rounded-lg px-3 py-2 text-sm">
+            <option value="">Все статусы</option>
+            <option value="planned" ${plansFilter.status==='planned'?'selected':''}>Запланировано</option>
+            <option value="done" ${plansFilter.status==='done'?'selected':''}>Исполнено</option>
+            <option value="overdue" ${plansFilter.status==='overdue'?'selected':''}>Просрочено</option>
+          </select>
+          <button onclick="plansFilter.status=$('#filter-status').value; loadPage('plans')" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm">Применить</button>
+          <button onclick="openNewPlanModal()" class="ml-auto px-4 py-2 bg-teal-700 text-white rounded-lg text-sm hover:bg-teal-800">+ Новая задача</button>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-100 overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-slate-600 text-left">
+              <tr>
+                <th class="px-4 py-3 font-medium">Дата</th>
+                <th class="px-4 py-3 font-medium">Объект / Задача</th>
+                <th class="px-4 py-3 font-medium">Ответственный</th>
+                <th class="px-4 py-3 font-medium">Статус</th>
+                <th class="px-4 py-3 font-medium">Виды работ</th>
+                <th class="px-4 py-3 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${plans.length === 0 ? '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Нет задач</td></tr>' :
+                plans.map(p => `
+                  <tr class="table-row border-t border-slate-50">
+                    <td class="px-4 py-3 whitespace-nowrap">${formatDate(p.planned_date)}${p.fact_date ? '<br><span class="text-xs text-teal-600">факт: '+formatDate(p.fact_date)+'</span>' : ''}</td>
+                    <td class="px-4 py-3">
+                      <div class="font-medium">${p.title || '—'}</div>
+                      ${p.object ? `<div class="text-xs text-slate-500">${p.object.code} · ${p.object.address || ''}</div>` : ''}
+                    </td>
+                    <td class="px-4 py-3">${p.responsible || '—'}</td>
+                    <td class="px-4 py-3">${statusBadge(p.status)}</td>
+                    <td class="px-4 py-3 text-xs">${(p.work_types_done || []).join(', ') || '—'}</td>
+                    <td class="px-4 py-3">
+                      ${p.status !== 'done' ? `<button onclick="completePlan(${p.id})" class="text-teal-700 hover:underline text-xs font-medium">Выполнить</button>` : ''}
+                    </td>
+                  </tr>
+                `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    async function completePlan(id) {
+      if (!confirm('Отметить задачу как выполненную?')) return;
+      try {
+        await api(`/api/plans/${id}/complete?work_types=7.5&work_types=7.6&work_types=7.7&work_types=7.8`, { method: 'POST' });
+        loadPage('plans');
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function openNewPlanModal() {
+      $('#modal-title').textContent = 'Новая задача ППР';
+      $('#modal-body').innerHTML = `
+        <form id="new-plan-form" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">Название</label>
+            <input name="title" class="w-full border rounded-lg px-3 py-2 text-sm" required placeholder="ППР ИНТ-01 — октябрь">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Дата плана</label>
+            <input name="planned_date" type="date" class="w-full border rounded-lg px-3 py-2 text-sm" required>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Ответственный</label>
+            <input name="responsible" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="ФИО">
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 border rounded-lg text-sm">Отмена</button>
+            <button type="submit" class="px-4 py-2 bg-teal-700 text-white rounded-lg text-sm">Создать</button>
+          </div>
+        </form>
+      `;
+      openModal();
+      $('#new-plan-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        try {
+          await api('/api/plans', {
+            method: 'POST',
+            body: JSON.stringify({
+              title: fd.get('title'),
+              planned_date: fd.get('planned_date'),
+              responsible: fd.get('responsible'),
+              status: 'planned'
+            })
+          });
+          closeModal();
+          loadPage('plans');
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    }
+
+    // ----- Objects -----
+    let objectsFilter = { type: '', search: '' };
+
+    async function renderObjects(el) {
+      const params = new URLSearchParams();
+      if (objectsFilter.type) params.set('object_type', objectsFilter.type);
+      if (objectsFilter.search) params.set('search', objectsFilter.search);
+      params.set('limit', '100');
+      const objects = await api('/api/objects?' + params);
+
+      el.innerHTML = `
+        <div class="flex flex-wrap gap-3 mb-4">
+          <input id="obj-search" value="${objectsFilter.search}" placeholder="Поиск по коду / адресу..." class="border border-slate-300 rounded-lg px-3 py-2 text-sm w-64">
+          <select id="obj-type" class="border border-slate-300 rounded-lg px-3 py-2 text-sm">
+            <option value="">Все типы</option>
+            <option value="camera_integration" ${objectsFilter.type==='camera_integration'?'selected':''}>ИНТ (камеры)</option>
+            <option value="voles" ${objectsFilter.type==='voles'?'selected':''}>ВОЛС</option>
+            <option value="network" ${objectsFilter.type==='network'?'selected':''}>Сеть ОСС</option>
+          </select>
+          <button onclick="objectsFilter.search=$('#obj-search').value; objectsFilter.type=$('#obj-type').value; loadPage('objects')" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm">Найти</button>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-100 overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-slate-600 text-left">
+              <tr>
+                <th class="px-4 py-3 font-medium">Код</th>
+                <th class="px-4 py-3 font-medium">Адрес / Название</th>
+                <th class="px-4 py-3 font-medium">Тип</th>
+                <th class="px-4 py-3 font-medium">Камер</th>
+                <th class="px-4 py-3 font-medium">Ответственный</th>
+                <th class="px-4 py-3 font-medium">Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${objects.map(o => `
+                <tr class="table-row border-t border-slate-50">
+                  <td class="px-4 py-3 font-mono text-xs font-medium">${o.code}</td>
+                  <td class="px-4 py-3 max-w-xs truncate" title="${o.address || ''}">${o.address || o.name || '—'}</td>
+                  <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${typeLabel(o.object_type)}</span></td>
+                  <td class="px-4 py-3">${o.cameras_count || '—'}</td>
+                  <td class="px-4 py-3 text-xs">${o.responsible_default || '—'}</td>
+                  <td class="px-4 py-3"><span class="text-xs ${o.status==='active'?'text-teal-700':'text-slate-400'}">${o.status}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="mt-2 text-xs text-slate-500">Показано ${objects.length} объектов</div>
+      `;
+    }
+
+    // ----- Daily -----
+    async function renderDaily(el) {
+      const checks = await api('/api/daily-checks?limit=20');
+      const today = new Date().toISOString().slice(0, 10);
+
+      el.innerHTML = `
+        <div class="grid lg:grid-cols-3 gap-6">
+          <div class="lg:col-span-1 bg-white rounded-xl border border-slate-100 p-5">
+            <h3 class="font-semibold mb-4">Новая проверка</h3>
+            <form id="daily-form" class="space-y-3 text-sm">
+              <div>
+                <label class="block text-slate-600 mb-1">Дата</label>
+                <input name="check_date" type="date" value="${today}" class="w-full border rounded-lg px-3 py-2" required>
+              </div>
+              <div>
+                <label class="block text-slate-600 mb-1">Инженер</label>
+                <input name="engineer" value="Рыков Д.И." class="w-full border rounded-lg px-3 py-2" required>
+              </div>
+              ${['monitoring_dashboard','critical_services','logs_security','config_backups','channel_utilization','ups_status'].map(f => {
+                const labels = {
+                  monitoring_dashboard: 'Дашборд мониторинга',
+                  critical_services: 'Ключевые сервисы',
+                  logs_security: 'Логи безопасности',
+                  config_backups: 'Бэкапы конфигураций',
+                  channel_utilization: 'Загрузка каналов',
+                  ups_status: 'Состояние ИБП'
+                };
+                return `<div class="flex items-center justify-between">
+                  <span>${labels[f]}</span>
+                  <select name="${f}" class="border rounded px-2 py-1 text-xs">
+                    <option value="ok">ОК</option>
+                    <option value="issues">Проблемы</option>
+                  </select>
+                </div>`;
+              }).join('')}
+              <div class="flex items-center gap-2">
+                <input type="checkbox" name="incidents_logged" id="inc" checked>
+                <label for="inc">Инциденты зафиксированы</label>
+              </div>
+              <div>
+                <label class="block text-slate-600 mb-1">Примечания</label>
+                <textarea name="notes" rows="2" class="w-full border rounded-lg px-3 py-2"></textarea>
+              </div>
+              <button type="submit" class="w-full py-2 bg-teal-700 text-white rounded-lg hover:bg-teal-800">Сохранить</button>
+            </form>
+          </div>
+          <div class="lg:col-span-2 bg-white rounded-xl border border-slate-100 p-5">
+            <h3 class="font-semibold mb-4">История проверок</h3>
+            ${checks.length === 0 ? '<p class="text-slate-400 text-sm">Пока нет записей</p>' : `
+              <div class="space-y-3">
+                ${checks.map(c => `
+                  <div class="border border-slate-100 rounded-lg p-3 text-sm">
+                    <div class="flex justify-between mb-1">
+                      <span class="font-medium">${formatDate(c.check_date)}</span>
+                      <span class="text-slate-500">${c.engineer}</span>
+                    </div>
+                    <div class="flex flex-wrap gap-2 text-xs">
+                      ${[['monitoring_dashboard','Мониторинг'],['critical_services','Сервисы'],['logs_security','Логи'],['config_backups','Бэкапы'],['channel_utilization','Каналы'],['ups_status','ИБП']].map(([k,l]) =>
+                        `<span class="px-2 py-0.5 rounded ${c[k]==='ok'?'bg-green-50 text-green-700':'bg-red-50 text-red-700'}">${l}: ${c[k]}</span>`
+                      ).join('')}
+                    </div>
+                    ${c.notes ? `<div class="mt-1 text-slate-500 text-xs">${c.notes}</div>` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            `}
+          </div>
+        </div>
+      `;
+
+      $('#daily-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const body = {
+          check_date: fd.get('check_date'),
+          engineer: fd.get('engineer'),
+          monitoring_dashboard: fd.get('monitoring_dashboard'),
+          critical_services: fd.get('critical_services'),
+          logs_security: fd.get('logs_security'),
+          config_backups: fd.get('config_backups'),
+          channel_utilization: fd.get('channel_utilization'),
+          ups_status: fd.get('ups_status'),
+          incidents_logged: fd.get('incidents_logged') === 'on',
+          notes: fd.get('notes') || null
+        };
+        try {
+          await api('/api/daily-checks', { method: 'POST', body: JSON.stringify(body) });
+          loadPage('daily');
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    }
+
+    // ----- Regulations -----
+    async function renderRegulations(el) {
+      const data = await api('/api/regulations');
+      el.innerHTML = `
+        <div class="bg-white rounded-xl border border-slate-100 p-6 max-w-4xl">
+          <h2 class="text-xl font-bold mb-1">${data.title}</h2>
+          <p class="text-sm text-slate-500 mb-6">ТОО «Satory Company ltd» · филиал г. Усть-Каменогорск · 2026</p>
+          ${data.sections.map(sec => `
+            <div class="mb-6">
+              <h3 class="font-semibold text-teal-800 mb-3 border-b pb-1">${sec.name}</h3>
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="text-left text-slate-500">
+                      <th class="py-2 pr-4 w-16">№</th>
+                      <th class="py-2 pr-4">Наименование</th>
+                      <th class="py-2 pr-4">Периодичность</th>
+                      <th class="py-2">Ответственный</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${sec.items.map(item => `
+                      <tr class="border-t border-slate-50">
+                        <td class="py-2 pr-4 font-mono text-xs">${item.code}</td>
+                        <td class="py-2 pr-4">${item.name}</td>
+                        <td class="py-2 pr-4">${item.periodicity}</td>
+                        <td class="py-2">${item.responsible}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `).join('')}
+          <div class="mt-4 p-4 bg-slate-50 rounded-lg text-sm text-slate-600">
+            <div class="font-medium mb-2">Примечания:</div>
+            <ul class="list-disc list-inside space-y-1">
+              ${data.notes.map(n => `<li>${n}</li>`).join('')}
+            </ul>
+          </div>
+        </div>
+      `;
+    }
+
+    // ----- Templates -----
+    async function renderTemplates(el) {
+      const templates = await api('/api/templates');
+      el.innerHTML = `
+        <div class="grid md:grid-cols-2 gap-4">
+          ${templates.map(t => `
+            <div class="card bg-white rounded-xl border border-slate-100 p-5">
+              <div class="flex items-start justify-between mb-2">
+                <span class="font-mono text-xs bg-teal-50 text-teal-800 px-2 py-0.5 rounded">${t.code}</span>
+                <span class="text-xs text-slate-500">${t.periodicity}</span>
+              </div>
+              <h3 class="font-semibold text-sm mb-1">${t.name}</h3>
+              <p class="text-xs text-slate-500 mb-3">${t.description || ''}</p>
+              <div class="flex flex-wrap gap-1">
+                ${(t.work_items || []).map(w => `<span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${w}</span>`).join('')}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    // ========== Modal ==========
+    function openModal() {
+      $('#modal').classList.remove('hidden');
+      $('#modal').classList.add('flex');
+      lucide.createIcons();
+    }
+    function closeModal() {
+      $('#modal').classList.add('hidden');
+      $('#modal').classList.remove('flex');
+    }
+
+    // ========== Init ==========
+    document.getElementById('current-date').textContent = new Date().toLocaleDateString('ru-RU', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+    loadPage('dashboard');
+    lucide.createIcons();
+  </script>
+</body>
+</html>
