@@ -1232,7 +1232,8 @@
         btn.onclick = async function() {
           const tpl = templates.find(function(t) { return t.id === Number(btn.dataset.id); });
           if (!tpl) return;
-          const value = prompt('ID подразделений через запятую. Пусто — общий регламент для всех.', (tpl.department_ids || []).join(','));
+          const departmentOptions = departments.map(function(d) { return d.id + ' — ' + d.name; }).join('\\n');
+          const value = prompt('ID подразделений через запятую. Пусто — общий регламент для всех.\\n' + departmentOptions, (tpl.department_ids || []).join(','));
           if (value === null) return;
           const ids = value.trim() ? value.split(',').map(function(v) { return Number(v.trim()); }) : [];
           if (ids.some(function(id) { return !Number.isInteger(id) || !departments.some(function(d) { return d.id === id; }); })) {
