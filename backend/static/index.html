@@ -1,6 +1,10 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ППР ОСС / АПК — Satory UKG</title>
@@ -252,6 +256,18 @@
     }
 
     // ----- Dashboard -----
+    async function loadIntegrationsStatus(el) {
+      try {
+        const [z, a] = await Promise.all([
+          api('/api/integrations/zabbix').catch(() => null),
+          fetch('/api/integrations/authentik').then(r => r.json()).catch(() => null)
+        ]);
+        el.innerHTML = `<div class="text-xs space-y-1">
+          <div>Zabbix: ${z && z.ok ? '✓ ' + (z.version || 'ok') : (z && z.configured ? '✗ ' + (z.error||'') : 'не настроен')}</div>
+          <div>Authentik: ${a && a.ok ? '✓ ' + (a.issuer||'') : (a && a.configured ? '✗' : 'не настроен')}</div>
+        </div>`;
+      } catch (e) { el.textContent = '—'; }
+    }
     async function renderDashboard(el) {
       const [stats, byType, completion] = await Promise.all([
         api('/api/dashboard'),
@@ -975,6 +991,11 @@ async function importExcelNow() {
     function exportExcelNow() {
       const n = new Date();
       window.open('/api/export/ppr.xlsx?year=' + n.getFullYear() + '&month=' + (n.getMonth()+1), '_blank');
+    }
+
+// ========== PWA ==========
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/static/sw.js').catch(() => {});
     }
 
 // ========== Init ==========

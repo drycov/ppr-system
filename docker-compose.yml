@@ -1,0 +1,24 @@
+services:
+  ppr:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      PPR_DB_PATH: /data/ppr_system.db
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      ZABBIX_URL: ${ZABBIX_URL:-}
+      ZABBIX_TOKEN: ${ZABBIX_TOKEN:-}
+      ZABBIX_USER: ${ZABBIX_USER:-}
+      ZABBIX_PASSWORD: ${ZABBIX_PASSWORD:-}
+      AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:-}
+      AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:-}
+      AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET:-}
+      AUTHENTIK_REDIRECT_URI: ${AUTHENTIK_REDIRECT_URI:-http://localhost:8000/api/auth/oidc/callback}
+    volumes:
+      - ppr_data:/data
+      - ./backend/data:/app/data:ro
+    restart: unless-stopped
+
+volumes:
+  ppr_data:

@@ -1,0 +1,7 @@
+**/__pycache__
+**/*.pyc
+**/.venv
+**/venv
+**/.git
+**/frontend/node_modules
+**/*.db

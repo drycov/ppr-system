@@ -25,6 +25,8 @@ from excel_export import export_ppr_report
 from import_excel import import_from_excel
 from scheduler import start_scheduler
 from notifications import notify_message
+from zabbix_client import ping as zabbix_ping, get_host_status
+from authentik_oidc import is_configured as authentik_configured, discovery as authentik_discovery, login_url as authentik_login_url
 
 app = FastAPI(
     title="Система управления ППР — ОСС / АПК",
@@ -812,7 +814,40 @@ def run_daily_jobs_now(user: User = Depends(require_admin)):
     return {"ok": True, "message": "Ежедневные задачи выполнены"}
 
 
+
+# ========== Integrations ==========
+@app.get("/api/integrations/zabbix")
+def zabbix_status(user: User = Depends(require_user)):
+    return zabbix_ping()
+
+
+@app.get("/api/integrations/zabbix/host/{host_name}")
+def zabbix_host(host_name: str, user: User = Depends(require_user)):
+    try:
+        return get_host_status(host_name)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/integrations/authentik")
+def authentik_status():
+    return authentik_discovery()
+
+
+@app.get("/api/auth/oidc/login")
+def oidc_login():
+    url = authentik_login_url()
+    if not url:
+        raise HTTPException(501, "Authentik OIDC не настроен (AUTHENTIK_ISSUER / CLIENT_ID)")
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url)
+
+
 # ========== Static frontend ==========
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
 STATIC_DIR = Path(__file__).parent / "static"
 
 @app.get("/")
