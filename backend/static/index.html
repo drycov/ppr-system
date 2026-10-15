@@ -4,7 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ППР ОСС / АПК — Satory UKG</title>
-  <script src="https://cdn.tailwindcss.com">    async function renderSystemSettings(el) {
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    async function renderSystemSettings(el) {
       if (!CURRENT_USER || !['admin'].includes(CURRENT_USER.role)) {
         el.innerHTML = '<div class="rounded-xl border border-rose-200 bg-rose-50 p-5 text-rose-700">Настройки доступны только администраторам.</div>'; return;
       }
