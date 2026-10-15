@@ -323,6 +323,7 @@ class StaffOut(BaseModel):
 class DutyCreate(BaseModel):
     duty_date: date
     user_id: int
+    department_id: Optional[int] = None  # null = общее дежурство для всех подразделений
     shift: str = "day"
     notes: Optional[str] = None
 
@@ -331,6 +332,7 @@ class DutyOut(BaseModel):
     id: int
     duty_date: date
     user_id: int
+    department_id: Optional[int] = None
     shift: str
     notes: Optional[str] = None
     user: Optional[StaffOut] = None
@@ -343,6 +345,7 @@ class DutyBulkCreate(BaseModel):
     """Массовое назначение: список дат одному сотруднику"""
     user_id: int
     dates: List[date]
+    department_id: Optional[int] = None  # null = для всех подразделений
     shift: str = "day"
     notes: Optional[str] = None
 
