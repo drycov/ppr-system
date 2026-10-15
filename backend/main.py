@@ -293,6 +293,10 @@ def list_plans(
 
 @app.post("/api/plans", response_model=schemas.PPRPlanOut)
 def create_plan(data: schemas.PPRPlanCreate, db: Session = Depends(get_db)):
+    if data.department_id is not None and not db.query(Department.id).filter(Department.id == data.department_id).first():
+        raise HTTPException(422, "Подразделение не найдено")
+    if data.object_id is not None and not db.query(Object.id).filter(Object.id == data.object_id).first():
+        raise HTTPException(422, "Объект не найден")
     plan = PPRPlan(**data.model_dump())
     db.add(plan)
     db.commit()
@@ -331,6 +335,10 @@ def update_plan(plan_id: int, data: schemas.PPRPlanUpdate, db: Session = Depends
     if not plan:
         raise HTTPException(404, "Задача не найдена")
     payload = data.model_dump(exclude_unset=True)
+    if payload.get("department_id") is not None and not db.query(Department.id).filter(Department.id == payload["department_id"]).first():
+        raise HTTPException(422, "Подразделение не найдено")
+    if payload.get("object_id") is not None and not db.query(Object.id).filter(Object.id == payload["object_id"]).first():
+        raise HTTPException(422, "Объект не найден")
     # если сменили исполнителя — подтянуть ФИО
     if "assignee_id" in payload and payload["assignee_id"]:
         u = db.query(User).filter(User.id == payload["assignee_id"]).first()
