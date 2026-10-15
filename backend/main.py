@@ -49,12 +49,11 @@ def on_startup():
     if "department_id" not in plan_columns:
         with engine.begin() as conn:
             conn.exec_driver_sql("ALTER TABLE ppr_plans ADD COLUMN department_id INTEGER REFERENCES departments(id)")
+            conn.exec_driver_sql("UPDATE ppr_plans SET department_id = (SELECT department_id FROM users WHERE users.id = ppr_plans.assignee_id) WHERE department_id IS NULL AND assignee_id IS NOT NULL")
     template_columns = {column["name"] for column in inspect(engine).get_columns("ppr_templates")}
     if "department_ids" not in template_columns:
         with engine.begin() as conn:
             conn.exec_driver_sql("ALTER TABLE ppr_templates ADD COLUMN department_ids JSON NOT NULL DEFAULT '[]'")
-    with engine.begin() as conn:
-        conn.exec_driver_sql("UPDATE ppr_plans SET department_id = (SELECT department_id FROM users WHERE users.id = ppr_plans.assignee_id) WHERE department_id IS NULL AND assignee_id IS NOT NULL")
     # Автосид при первом запуске
     db = next(get_db())
     try:
