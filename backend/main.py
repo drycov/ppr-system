@@ -44,6 +44,10 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    # Добавляем подразделение объектам в существующей БД без потери данных.
+    with engine.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE objects ADD COLUMN IF NOT EXISTS department_id INTEGER REFERENCES departments(id)")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_objects_department_id ON objects (department_id)")
     # Автосид при первом запуске
     db = next(get_db())
     try:
@@ -546,12 +550,15 @@ def api_generate_plans(
     work_direction: Optional[str] = Query(
         None, description="sysadmin | installer | network_engineer | head"
     ),
+    department_id: Optional[int] = Query(None, ge=1),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    if department_id is not None and not db.query(Department).filter(Department.id == department_id, Department.is_active == True).first():
+        raise HTTPException(404, "Подразделение не найдено или неактивно")
     types = [object_type] if object_type else None
     result = generate_plans_for_period(
-        db, year, month, object_types=types, work_direction=work_direction
+        db, year, month, object_types=types, work_direction=work_direction, department_id=department_id
     )
     return result
 
@@ -561,12 +568,15 @@ def api_generate_quick(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
     work_direction: Optional[str] = Query(None),
+    department_id: Optional[int] = Query(None, ge=1),
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Быстрое создание задач ППР на месяц (по направлению или всем)."""
+    """Быстрое создание задач ППР на месяц по объектам выбранного подразделения."""
+    if department_id is not None and not db.query(Department).filter(Department.id == department_id, Department.is_active == True).first():
+        raise HTTPException(404, "Подразделение не найдено или неактивно")
     from planning import generate_quick_plans
-    return generate_quick_plans(db, year, month, work_direction=work_direction)
+    return generate_quick_plans(db, year, month, work_direction=work_direction, department_id=department_id)
 
 
 @app.get("/api/planning/distribution")
@@ -658,11 +668,14 @@ def export_excel(
         raise HTTPException(400, "from_date не может быть позже to_date")
     if (to_date - from_date).days > 3660:
         raise HTTPException(400, "Максимальный период отчёта — 10 лет")
+    if department_id is not None and not db.query(Department).filter(Department.id == department_id).first():
+        raise HTTPException(404, "Подразделение не найдено")
     from report_service import export_ppr_period_report
     data = export_ppr_period_report(
-        db, from_date, to_date, object_type=object_type, work_direction=work_direction
+        db, from_date, to_date, object_type=object_type, work_direction=work_direction, department_id=department_id
     )
-    filename = f"Otchet_PPR_{from_date.isoformat()}_{to_date.isoformat()}.xlsx"
+    dept_suffix = f"_dept{department_id}" if department_id is not None else "_all_departments"
+    filename = f"Otchet_PPR_{from_date.isoformat()}_{to_date.isoformat()}{dept_suffix}.xlsx"
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
