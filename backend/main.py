@@ -11,7 +11,7 @@ from pathlib import Path
 from io import BytesIO
 
 from database import get_db, engine, Base
-from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule, Department, Position, SystemRole, RelocationLog, NotificationLog, SystemSetting, SettingsAudit
+from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule, Department, Position, SystemRole, RelocationLog, NotificationLog
 import schemas
 import seed
 from auth import (
@@ -25,7 +25,6 @@ from excel_export import export_ppr_report
 from import_excel import import_from_excel
 from scheduler import start_scheduler
 from notifications import notify_message
-from settings_service import SETTINGS_CATALOG, CATALOG_BY_KEY, get_settings_snapshot, save_settings, get_setting
 
 app = FastAPI(
     title="Система управления ППР — ОСС / АПК",
@@ -45,6 +44,10 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    duty_columns = {column["name"] for column in inspect(engine).get_columns("duty_schedules")}
+    if "department_id" not in duty_columns:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TABLE duty_schedules ADD COLUMN department_id INTEGER REFERENCES departments(id)")
     # Подразделение относится к задаче ППР, объект не закрепляется за подразделением.
     plan_columns = {column["name"] for column in inspect(engine).get_columns("ppr_plans")}
     if "department_id" not in plan_columns:
@@ -72,73 +75,6 @@ def on_startup():
             seed.seed_sample_plans(db)
     finally:
         db.close()
-    # Запуск фонового планировщика с параметрами из БД.
-    start_scheduler()
-
-
-# ========== System settings ==========
-@app.get("/api/settings")
-def list_system_settings(user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    return {"settings": get_settings_snapshot(db), "categories": list(dict.fromkeys(x["category"] for x in SETTINGS_CATALOG))}
-
-
-@app.put("/api/settings")
-def update_system_settings(payload: dict, user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    values = payload.get("settings", payload)
-    try:
-        changed = save_settings(db, values, user.username or user.full_name or str(user.id))
-    except ValueError as exc:
-        db.rollback()
-        raise HTTPException(status_code=422, detail=str(exc))
-    return {"ok": True, "changed": changed, "settings": get_settings_snapshot(db)}
-
-
-@app.post("/api/settings/reset")
-def reset_system_settings(payload: dict, user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    keys = payload.get("keys", [])
-    if not isinstance(keys, list) or any(not isinstance(k, str) for k in keys):
-        raise HTTPException(422, "keys должен быть массивом строк")
-    unknown = sorted(set(keys) - set(CATALOG_BY_KEY))
-    if unknown:
-        raise HTTPException(422, "Неизвестные настройки: " + ", ".join(unknown))
-    query = db.query(SystemSetting)
-    if keys:
-        query = query.filter(SystemSetting.key.in_(keys))
-    rows = query.all()
-    changed = {}
-    for row in rows:
-        spec = CATALOG_BY_KEY[row.key]
-        changed[row.key] = {"old": "***" if spec["type"] == "secret" else row.value, "new": "default"}
-        db.delete(row)
-    if changed:
-        db.add(SettingsAudit(actor=user.username or user.full_name or str(user.id), action="reset", changes=changed, created_at=datetime.utcnow()))
-        db.commit()
-    return {"ok": True, "reset": list(changed), "settings": get_settings_snapshot(db)}
-
-
-@app.get("/api/settings/export")
-def export_system_settings(user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    values = {item["key"]: item["value"] for item in get_settings_snapshot(db, include_secrets=True) if item["type"] != "secret"}
-    return {"version": 1, "exported_at": datetime.utcnow().isoformat() + "Z", "settings": values}
-
-
-@app.post("/api/settings/import")
-def import_system_settings(payload: dict, user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    values = payload.get("settings")
-    if not isinstance(values, dict):
-        raise HTTPException(422, "Ожидается объект settings из экспорта")
-    try:
-        changed = save_settings(db, values, user.username or user.full_name or str(user.id))
-    except ValueError as exc:
-        db.rollback()
-        raise HTTPException(status_code=422, detail=str(exc))
-    return {"ok": True, "changed": changed, "settings": get_settings_snapshot(db)}
-
-
-@app.get("/api/settings/audit")
-def list_settings_audit(limit: int = Query(100, ge=1, le=500), user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    rows = db.query(SettingsAudit).order_by(SettingsAudit.created_at.desc()).limit(limit).all()
-    return [{"id": r.id, "actor": r.actor, "action": r.action, "changes": r.changes, "created_at": r.created_at.isoformat() if r.created_at else None} for r in rows]
 
 
 # ========== Dashboard ==========
@@ -922,6 +858,8 @@ def list_duties(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     user_id: Optional[int] = None,
+    department_id: Optional[int] = None,
+    scope: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     q = db.query(DutySchedule).options(joinedload(DutySchedule.user))
@@ -931,7 +869,11 @@ def list_duties(
         q = q.filter(DutySchedule.duty_date <= to_date)
     if user_id:
         q = q.filter(DutySchedule.user_id == user_id)
-    return q.order_by(DutySchedule.duty_date).all()
+    if scope == "global":
+        q = q.filter(DutySchedule.department_id.is_(None))
+    elif department_id is not None:
+        q = q.filter(DutySchedule.department_id == department_id)
+    return q.order_by(DutySchedule.duty_date, DutySchedule.department_id, DutySchedule.shift, DutySchedule.id).all()
 
 
 @app.get("/api/duties/today")
@@ -941,6 +883,7 @@ def duty_today(db: Session = Depends(get_db)):
         db.query(DutySchedule)
         .options(joinedload(DutySchedule.user))
         .filter(DutySchedule.duty_date == today)
+        .order_by(DutySchedule.department_id, DutySchedule.id)
         .all()
     )
     return [
@@ -949,6 +892,7 @@ def duty_today(db: Session = Depends(get_db)):
             "duty_date": d.duty_date.isoformat(),
             "shift": d.shift,
             "user_id": d.user_id,
+            "department_id": d.department_id,
             "full_name": d.user.full_name if d.user else None,
             "username": d.user.username if d.user else None,
         }
@@ -966,10 +910,16 @@ def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db
         raise HTTPException(404, "Сотрудник не найден")
     if not staff.is_active or not staff.can_duty:
         raise HTTPException(422, "Назначить можно только активного сотрудника с правом дежурства")
-    # График единый для всей организации: подразделение сотрудника не ограничивает охват дежурства.
+    if data.department_id is not None:
+        department = db.query(Department).filter(Department.id == data.department_id).first()
+        if not department or not department.is_active:
+            raise HTTPException(422, "Подразделение не найдено или неактивно")
+        if staff.department_id != data.department_id:
+            raise HTTPException(422, "Для графика подразделения выберите сотрудника этого подразделения")
     existing = db.query(DutySchedule).filter(
         DutySchedule.duty_date == data.duty_date,
         DutySchedule.shift == shift,
+        DutySchedule.department_id == data.department_id if data.department_id is not None else DutySchedule.department_id.is_(None),
     ).first()
     if existing:
         existing.user_id = data.user_id
@@ -977,7 +927,13 @@ def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db
         db.commit()
         db.refresh(existing)
         return existing
-    d = DutySchedule(duty_date=data.duty_date, user_id=data.user_id, shift=shift, notes=data.notes)
+    d = DutySchedule(
+        duty_date=data.duty_date,
+        user_id=data.user_id,
+        department_id=data.department_id,
+        shift=shift,
+        notes=data.notes,
+    )
     db.add(d)
     db.commit()
     db.refresh(d)
@@ -994,20 +950,37 @@ def create_duties_bulk(data: schemas.DutyBulkCreate, user: User = Depends(requir
         raise HTTPException(404, "Сотрудник не найден")
     if not staff.is_active or not staff.can_duty:
         raise HTTPException(422, "Назначить можно только активного сотрудника с правом дежурства")
+    if data.department_id is not None:
+        department = db.query(Department).filter(Department.id == data.department_id).first()
+        if not department or not department.is_active:
+            raise HTTPException(422, "Подразделение не найдено или неактивно")
+        if staff.department_id != data.department_id:
+            raise HTTPException(422, "Для графика подразделения выберите сотрудника этого подразделения")
     dates = sorted(set(data.dates))
     created = 0
     updated = 0
     for duty_date in dates:
-        existing = db.query(DutySchedule).filter(
+        q = db.query(DutySchedule).filter(
             DutySchedule.duty_date == duty_date,
             DutySchedule.shift == shift,
-        ).first()
+        )
+        q = q.filter(
+            DutySchedule.department_id == data.department_id
+            if data.department_id is not None else DutySchedule.department_id.is_(None)
+        )
+        existing = q.first()
         if existing:
             existing.user_id = data.user_id
             existing.notes = data.notes
             updated += 1
         else:
-            db.add(DutySchedule(duty_date=duty_date, user_id=data.user_id, shift=shift, notes=data.notes))
+            db.add(DutySchedule(
+                duty_date=duty_date,
+                user_id=data.user_id,
+                department_id=data.department_id,
+                shift=shift,
+                notes=data.notes,
+            ))
             created += 1
     db.commit()
     return {"created": created, "updated": updated, "message": f"Создано {created}, обновлено {updated}"}
