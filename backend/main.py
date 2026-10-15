@@ -19,7 +19,7 @@ from auth import (
     authenticate_user, create_access_token, require_user, require_admin,
     get_current_user, Token, UserOut, ACCESS_TOKEN_EXPIRE_HOURS
 )
-from planning import generate_plans_for_period, mark_overdue, reassign_plans_by_duty
+from planning import generate_plans_for_period, mark_overdue, reassign_plans_by_duty, generate_quick_plans
 from pdf_service import generate_ppr_act
 from excel_export import export_ppr_report
 from import_excel import import_from_excel
@@ -463,12 +463,61 @@ def api_generate_plans(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
     object_type: Optional[str] = None,
+    work_direction: Optional[str] = Query(
+        None, description="sysadmin | installer | network_engineer | head"
+    ),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     types = [object_type] if object_type else None
-    result = generate_plans_for_period(db, year, month, object_types=types)
+    result = generate_plans_for_period(
+        db, year, month, object_types=types, work_direction=work_direction
+    )
     return result
+
+
+@app.post("/api/planning/generate-quick")
+def api_generate_quick(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    work_direction: Optional[str] = Query(None),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Быстрое создание задач ППР на месяц (по направлению или всем)."""
+    from planning import generate_quick_plans
+    return generate_quick_plans(db, year, month, work_direction=work_direction)
+
+
+@app.get("/api/planning/distribution")
+def api_ppr_distribution(db: Session = Depends(get_db)):
+    """Сводка шаблонов ППР по направлениям и периодичности."""
+    templates = db.query(PPRTemplate).filter(PPRTemplate.is_active == True).order_by(PPRTemplate.code).all()
+    directions = {
+        "sysadmin": {"title": "Системные администраторы", "items": []},
+        "installer": {"title": "Монтажники", "items": []},
+        "network_engineer": {"title": "Сетевые инженеры", "items": []},
+        "head": {"title": "Начальник ОСС", "items": []},
+    }
+    for t in templates:
+        d = t.work_direction or "network_engineer"
+        if d not in directions:
+            directions[d] = {"title": d, "items": []}
+        directions[d]["items"].append({
+            "code": t.code,
+            "name": t.name,
+            "periodicity": t.periodicity,
+            "work_items": t.work_items or [],
+        })
+    return {"directions": directions, "total": len(templates)}
+
+
+@app.post("/api/planning/reseed-templates")
+def api_reseed_templates(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Обновить шаблоны ППР из seed (распределение по направлениям)."""
+    seed.seed_templates(db)
+    count = db.query(PPRTemplate).count()
+    return {"ok": True, "templates": count, "message": f"Шаблоны обновлены, всего {count}"}
 
 
 @app.post("/api/planning/mark-overdue")
@@ -566,6 +615,7 @@ def create_staff(data: schemas.StaffCreate, user: User = Depends(require_user), 
         email=data.email,
         can_do_ppr=data.can_do_ppr,
         can_duty=data.can_duty,
+        ppr_specialty=getattr(data, "ppr_specialty", None),
         notes=data.notes,
         is_active=True,
     )
