@@ -1850,53 +1850,73 @@ async function renderStaff(el) {
         api('/api/duties?from_date=' + from + '&to_date=' + to),
         api('/api/staff?can_duty=true'),
         api('/api/duties/today'),
-        api('/api/departments?active_only=false')
+        api('/api/departments?active_only=true')
       ]);
+      const activeStaff = staff.filter(s => s.is_active !== false && s.can_duty !== false);
       const departmentNames = Object.fromEntries(departments.map(d => [d.id, d.name]));
-      const dutyMap = {};
-      duties.forEach(d => {
-        if (!dutyMap[d.duty_date] || d.shift === 'day' || d.shift === 'full') dutyMap[d.duty_date] = d;
-      });
       const escapeDuty = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-      let calendar = '';
-      for (let d = 1; d <= lastDay; d++) {
-        const ds = y + '-' + String(m+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
-        const duty = dutyMap[ds];
-        const name = duty && duty.user ? (duty.user.full_name || duty.user.username) : '';
-        const department = duty && duty.user && duty.user.department_id ? departmentNames[duty.user.department_id] : '';
-        const isToday = ds === [y, String(m+1).padStart(2,'0'), String(d).padStart(2,'0')].join('-');
-        calendar += '<div class="border rounded-lg p-2 text-xs min-w-0 ' + (isToday?'ring-2 ring-teal-600 ':'') + (duty?'bg-teal-50 border-teal-200':'bg-white') + '">' +
-          '<div class="flex items-center justify-between gap-1 mb-1"><span class="font-semibold">' + d + '</span><span class="text-[10px] text-slate-400">' + (duty ? escapeDuty(({day:'День',night:'Ночь',full:'24 ч.'})[duty.shift] || duty.shift) : '') + '</span></div>' +
-          '<div class="text-slate-700 truncate mb-0.5" title="' + escapeDuty(name) + '">' + (escapeDuty(name) || '<span class="text-slate-400">Не назначен</span>') + '</div>' +
-          '<div class="text-[10px] text-slate-500 truncate mb-1" title="' + escapeDuty(department) + '">' + (escapeDuty(department) || (duty ? 'Все подразделения' : '')) + '</div>' +
-          '<select data-date="' + ds + '" class="duty-select w-full border rounded px-1 py-1 text-xs bg-white"><option value="">Не назначен</option>' +
-          staff.map(s => '<option value="' + s.id + '"' + (duty && duty.user_id===s.id?' selected':'') + '>' + escapeDuty(s.full_name || s.username) + (s.department_id && departmentNames[s.department_id] ? ' · ' + escapeDuty(departmentNames[s.department_id]) : ' · без подразделения') + '</option>').join('') +
-          '</select>' +
-          (duty ? '<button type="button" data-duty-id="' + duty.id + '" class="duty-delete mt-1 w-full text-[10px] text-red-600 hover:bg-red-50 rounded py-1">Снять дежурство</button>' : '') +
-          '</div>';
-      }
+      const shiftName = shift => ({day:'День',night:'Ночь',full:'24 ч.'})[shift] || shift;
+      const scopeKey = id => id == null ? 'global' : String(id);
+      const scopeTitle = id => id == null ? 'Все подразделения' : (departmentNames[id] || 'Подразделение');
+      const dutyFor = (date, deptId) => duties.find(d => d.duty_date === date && (deptId == null ? d.department_id == null : d.department_id === deptId) && (d.shift === 'day' || d.shift === 'full')) || duties.find(d => d.duty_date === date && (deptId == null ? d.department_id == null : d.department_id === deptId)) || null;
+      const renderCalendar = (scopeId, scopeStaff, scopeDuties) => {
+        const map = {};
+        scopeDuties.forEach(d => { if (!map[d.duty_date] || d.shift === 'day' || d.shift === 'full') map[d.duty_date] = d; });
+        let html = '';
+        for (let day = 1; day <= lastDay; day++) {
+          const ds = y + '-' + String(m+1).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+          const duty = map[ds];
+          const name = duty && duty.user ? (duty.user.full_name || duty.user.username) : '';
+          const todayCell = ds === now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+          html += '<div class="border rounded-lg p-2 text-xs min-w-0 ' + (todayCell?'ring-2 ring-teal-600 ':'') + (duty?'bg-teal-50 border-teal-200':'bg-white') + '">' +
+            '<div class="flex items-center justify-between gap-1 mb-1"><span class="font-semibold">' + day + '</span><span class="text-[10px] text-slate-400">' + (duty ? escapeDuty(shiftName(duty.shift)) : '') + '</span></div>' +
+            '<div class="text-slate-700 truncate mb-1" title="' + escapeDuty(name) + '">' + (escapeDuty(name) || '<span class="text-slate-400">Не назначен</span>') + '</div>' +
+            '<select data-date="' + ds + '" data-scope="' + scopeKey(scopeId) + '" class="duty-select w-full border rounded px-1 py-1 text-xs bg-white"><option value="">Не назначен</option>' +
+            scopeStaff.map(s => '<option value="' + s.id + '"' + (duty && duty.user_id===s.id?' selected':'') + '>' + escapeDuty(s.full_name || s.username) + '</option>').join('') +
+            '</select>' +
+            (duty ? '<button type="button" data-duty-id="' + duty.id + '" class="duty-delete mt-1 w-full text-[10px] text-red-600 hover:bg-red-50 rounded py-1">Снять</button>' : '') +
+            '</div>';
+        }
+        return html;
+      };
+      const globalDuties = duties.filter(d => d.department_id == null);
+      const departmentCards = departments.map(dept => {
+        const deptStaff = activeStaff.filter(s => s.department_id === dept.id);
+        const deptDuties = duties.filter(d => d.department_id === dept.id);
+        const assigned = deptDuties.length;
+        return '<section class="bg-white border border-slate-200 rounded-xl p-4 mb-4">' +
+          '<div class="flex flex-wrap justify-between items-center gap-2 mb-3"><div><h3 class="font-semibold text-slate-900">' + escapeDuty(dept.name) + '</h3><p class="text-xs text-slate-500">Собственный график подразделения · назначений: ' + assigned + '</p></div>' +
+          '<span class="text-xs text-slate-500">Сотрудников с правом дежурства: ' + deptStaff.length + '</span></div>' +
+          (deptStaff.length ? '<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">' + renderCalendar(dept.id, deptStaff, deptDuties) + '</div>' : '<p class="text-sm text-amber-700 bg-amber-50 rounded p-3">Нет активных сотрудников подразделения с правом дежурства.</p>') +
+          '</section>';
+      }).join('');
+      const globalCard = '<section class="bg-indigo-50/50 border border-indigo-200 rounded-xl p-4 mb-5">' +
+        '<div class="flex flex-wrap justify-between items-center gap-2 mb-3"><div><h3 class="font-semibold text-slate-900">Общий график — все подразделения</h3><p class="text-xs text-slate-600">Общие дежурства используются, если для конкретного подразделения на эту дату не назначен свой дежурный.</p></div><span class="text-xs text-slate-600">Назначений: ' + globalDuties.length + '</span></div>' +
+        '<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">' + renderCalendar(null, activeStaff, globalDuties) + '</div></section>';
+      const grouped = {};
+      duties.forEach(d => { (grouped[d.duty_date] ||= []).push(d); });
+      const overallRows = Object.keys(grouped).sort().map(ds => {
+        const entries = grouped[ds].map(d => '<span class="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 mr-1 mb-1"><strong>' + escapeDuty(scopeTitle(d.department_id)) + ':</strong> ' + escapeDuty(d.user ? (d.user.full_name || d.user.username) : ('ID ' + d.user_id)) + ' <span class="text-slate-500">(' + escapeDuty(shiftName(d.shift)) + ')</span> <button type="button" data-duty-id="' + d.id + '" class="duty-delete text-red-600" title="Снять дежурство">×</button></span>').join('');
+        return '<tr class="border-t"><td class="p-2 whitespace-nowrap">' + escapeDuty(ds) + '</td><td class="p-2">' + entries + '</td></tr>';
+      }).join('');
       el.innerHTML = `
         <div class="mb-4 flex flex-wrap gap-3 items-center">
-          <div class="bg-teal-50 border border-teal-200 rounded-lg px-4 py-2 text-sm">
-            <span class="text-slate-500">Сегодня дежурит:</span>
-            <strong class="ml-1">${today.length ? today.map(t => escapeDuty(t.full_name || t.username)).join(', ') : 'не назначен'}</strong>
-          </div>
-          <div class="bg-white border border-slate-200 rounded-lg px-4 py-2 text-sm">
-            <span class="text-slate-500">Назначено в этом месяце:</span>
-            <strong class="ml-1">${duties.length}</strong>
-          </div>
-          <button id="btn-reassign" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">Переназначить ППР по дежурствам</button>
-          <p class="text-xs text-slate-500 w-full">Единый график для всех подразделений. Дежурный на дату может получать задачи ППР независимо от своего подразделения. Для автоматического назначения используются дневная и круглосуточная смены.</p>
+          <div class="bg-teal-50 border border-teal-200 rounded-lg px-4 py-2 text-sm"><span class="text-slate-500">Сегодня дежурят:</span><strong class="ml-1">${today.length ? today.map(t => escapeDuty(t.full_name || t.username) + ' — ' + escapeDuty(scopeTitle(t.department_id))).join('; ') : 'не назначены'}</strong></div>
+          <div class="bg-white border border-slate-200 rounded-lg px-4 py-2 text-sm"><span class="text-slate-500">Назначений за месяц:</span><strong class="ml-1">${duties.length}</strong></div>
+          <button id="btn-reassign" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">Переназначить ППР по графикам</button>
         </div>
-        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">${calendar}</div>`;
+        ${globalCard}
+        <div class="mb-5"><h3 class="font-semibold text-lg mb-3">Графики по подразделениям</h3>${departmentCards || '<p class="text-sm text-slate-500">Подразделения не найдены.</p>'}</div>
+        <section class="bg-white border border-slate-200 rounded-xl p-4"><h3 class="font-semibold text-lg mb-3">Общий календарь дежурств</h3><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-slate-500"><th class="p-2">Дата</th><th class="p-2">Назначения по всем графикам</th></tr></thead><tbody>${overallRows || '<tr><td colspan="2" class="p-3 text-slate-500">Назначений на этот месяц нет.</td></tr>'}</tbody></table></div></section>`;
       el.querySelectorAll('.duty-select').forEach(sel => {
         sel.onchange = async () => {
           try {
+            const scope = sel.dataset.scope === 'global' ? null : Number(sel.dataset.scope);
             if (!sel.value) {
-              const existing = dutyMap[sel.dataset.date];
+              const existing = duties.find(d => d.duty_date === sel.dataset.date && (scope == null ? d.department_id == null : d.department_id === scope) && (d.shift === 'day' || d.shift === 'full')) || duties.find(d => d.duty_date === sel.dataset.date && (scope == null ? d.department_id == null : d.department_id === scope));
               if (existing) await api('/api/duties/' + existing.id, { method: 'DELETE' });
             } else {
-              await api('/api/duties', { method: 'POST', body: JSON.stringify({ duty_date: sel.dataset.date, user_id: parseInt(sel.value, 10), shift: 'day' }) });
+              await api('/api/duties', { method: 'POST', body: JSON.stringify({ duty_date: sel.dataset.date, user_id: Number(sel.value), department_id: scope, shift: 'day' }) });
             }
             await renderDuties(el);
           } catch (e) {
@@ -1915,7 +1935,7 @@ async function renderStaff(el) {
       });
       const btn = el.querySelector('#btn-reassign');
       if (btn) btn.onclick = async () => {
-        if (!confirm('Переназначить все плановые задачи выбранного месяца по единому графику дежурств, включая задачи других подразделений?')) return;
+        if (!confirm('Переназначить плановые задачи по графикам подразделений; если локальный дежурный не назначен, использовать общий график?')) return;
         try {
           const r = await api('/api/planning/reassign-by-duty?year=' + y + '&month=' + (m+1), { method: 'POST' });
           toast(r.message || 'Плановые задачи переназначены', 'success');
