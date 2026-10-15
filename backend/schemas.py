@@ -56,6 +56,7 @@ class PPRTemplateBase(BaseModel):
     work_items: List[str] = []
     periodicity: str = "monthly"
     responsible_role: str = "engineer"
+    work_direction: str = "network_engineer"
     is_active: bool = True
 
 
@@ -222,6 +223,7 @@ class StaffCreate(BaseModel):
     email: Optional[str] = None
     can_do_ppr: bool = True
     can_duty: bool = True
+    ppr_specialty: Optional[str] = None
     notes: Optional[str] = None
 
     @model_validator(mode="after")
@@ -257,6 +259,7 @@ class StaffUpdate(BaseModel):
     is_active: Optional[bool] = None
     can_do_ppr: Optional[bool] = None
     can_duty: Optional[bool] = None
+    ppr_specialty: Optional[str] = None
     notes: Optional[str] = None
     password: Optional[str] = None
 
@@ -294,6 +297,7 @@ class StaffOut(BaseModel):
     is_active: bool = True
     can_do_ppr: bool = True
     can_duty: bool = True
+    ppr_specialty: Optional[str] = None
     notes: Optional[str] = None
 
     class Config:
