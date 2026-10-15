@@ -54,11 +54,13 @@ def get_duty_user(db: Session, on_date: date) -> User | None:
     return duty.user if duty else None
 
 
-def get_users_by_specialty(db: Session, specialty: str | None) -> list:
+def get_users_by_specialty(db: Session, specialty: str | None, department_id: int | None = None) -> list:
     q = db.query(User).filter(
         User.is_active == True,
         User.can_do_ppr == True,
     )
+    if department_id is not None:
+        q = q.filter(User.department_id == department_id)
     users = q.order_by(User.id).all()
     if not specialty or specialty in ("any",):
         return users
@@ -75,6 +77,7 @@ def resolve_assignee_for_template(
     planned: date,
     index: int,
     prefer_duty: bool = True,
+    department_id: int | None = None,
 ) -> tuple:
     """
     1) head → пользователь с role head/admin или specialty head
@@ -88,6 +91,7 @@ def resolve_assignee_for_template(
         heads = (
             db.query(User)
             .filter(User.is_active == True, User.role.in_(["head", "admin"]))
+            .filter(User.department_id == department_id if department_id is not None else True)
             .order_by(User.id)
             .all()
         )
@@ -98,17 +102,17 @@ def resolve_assignee_for_template(
     # daily — предпочитаем дежурного
     if prefer_duty and template.periodicity == "daily":
         duty = get_duty_user(db, planned)
-        if duty:
+        if duty and (department_id is None or duty.department_id == department_id):
             return duty, True, duty.full_name or duty.username
 
-    pool = get_users_by_specialty(db, direction)
+    pool = get_users_by_specialty(db, direction, department_id=department_id)
     if not pool:
         return None, False, "Инженер ОСС"
 
     # дежурный из пула, если есть
     if prefer_duty:
         duty = get_duty_user(db, planned)
-        if duty and duty in pool:
+        if duty and duty in pool and (department_id is None or duty.department_id == department_id):
             return duty, True, duty.full_name or duty.username
 
     u = pool[index % len(pool)]
@@ -159,6 +163,7 @@ def generate_plans_for_period(
     prefer_duty: bool = True,
     work_direction: str = None,
     include_daily_templates: bool = False,
+    department_id: int | None = None,
 ) -> dict:
     """
     Создаёт задачи ППР на месяц:
@@ -191,6 +196,9 @@ def generate_plans_for_period(
         or t.object_types == ["network"]
         or (len(t.object_types) == 1 and t.object_types[0] == "network")
     ]
+    # В режиме подразделения все задачи привязываются к объектам этого подразделения.
+    if department_id is not None:
+        system_templates = []
     # исключим камерные коды
     system_templates = [
         t for t in system_templates
@@ -217,7 +225,7 @@ def generate_plans_for_period(
                     continue
 
             user, by_d, responsible = resolve_assignee_for_template(
-                db, tpl, planned, idx, prefer_duty=prefer_duty
+                db, tpl, planned, idx, prefer_duty=prefer_duty, department_id=department_id
             )
             if by_d:
                 by_duty += 1
@@ -241,6 +249,8 @@ def generate_plans_for_period(
     # --- 2) Объектные шаблоны (камеры, ОВН, ВОЛС) ---
     object_templates = [t for t in templates if t not in system_templates]
     q = db.query(Object).filter(Object.status == "active")
+    if department_id is not None:
+        q = q.filter(Object.department_id == department_id)
     if object_types:
         q = q.filter(Object.object_type.in_(object_types))
     objects = q.order_by(Object.id).all()
@@ -248,7 +258,8 @@ def generate_plans_for_period(
     for oidx, obj in enumerate(objects):
         relevant = [
             t for t in object_templates
-            if obj.object_type in (t.object_types or [])
+            if not (t.object_types or [])
+            or obj.object_type in (t.object_types or [])
             or (
                 obj.object_type in NETWORK_OBJECT_TYPES
                 and "network" in (t.object_types or [])
@@ -277,7 +288,7 @@ def generate_plans_for_period(
                         continue
 
                 user, by_d, responsible = resolve_assignee_for_template(
-                    db, tpl, planned, oidx + tidx, prefer_duty=prefer_duty
+                    db, tpl, planned, oidx + tidx, prefer_duty=prefer_duty, department_id=department_id
                 )
                 if by_d:
                     by_duty += 1
@@ -308,6 +319,8 @@ def generate_plans_for_period(
         "by_duty": by_duty,
         "by_direction": by_direction,
         "period": f"{year}-{month:02d}",
+        "department_id": department_id,
+        "objects_considered": len(objects),
         "message": f"Создано задач: {created}, пропущено: {skipped}",
     }
 
@@ -354,6 +367,7 @@ def generate_quick_plans(
     year: int,
     month: int,
     work_direction: str = None,
+    department_id: int | None = None,
 ) -> dict:
     """Быстрое создание задач на месяц по направлению (или всем)."""
     return generate_plans_for_period(
@@ -364,4 +378,5 @@ def generate_quick_plans(
         only_without_plan=True,
         prefer_duty=True,
         include_daily_templates=False,
+        department_id=department_id,
     )
