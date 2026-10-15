@@ -56,8 +56,6 @@ class Object(Base):
     cameras_count = Column(Integer, default=0)
     status = Column(String(30), default="active")  # active, relocated, decommissioned
     responsible_default = Column(String(150))
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
-    department = relationship("Department", back_populates="objects")
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -106,7 +104,6 @@ class Department(Base):
 
     positions = relationship("Position", back_populates="department")
     users = relationship("User", back_populates="department")
-    objects = relationship("Object", back_populates="department")
 
 
 class Position(Base):
@@ -191,6 +188,7 @@ class PPRPlan(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     object_id = Column(Integer, ForeignKey("objects.id"), nullable=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
     template_id = Column(Integer, ForeignKey("ppr_templates.id"), nullable=True)
     assignee_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # назначенный сотрудник
     title = Column(String(255))
