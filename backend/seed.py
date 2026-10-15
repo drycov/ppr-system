@@ -202,43 +202,23 @@ def seed_templates(db: Session):
 
 
 def seed_users(db: Session):
-    """Сотрудники из отчётов ППР + руководство"""
-    users = [
-        {"username": "admin", "full_name": "Рыков Д.И.", "role": "admin", "position": "Начальник ОСС", "hashed_password": "admin", "can_do_ppr": True, "can_duty": True},
-        {"username": "head", "full_name": "Начальник ОСС", "role": "head", "position": "Начальник ОСС", "hashed_password": "head", "can_do_ppr": True, "can_duty": False},
-        {"username": "kuryanov", "full_name": "Курьянов Олег Константинович", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "leskin", "full_name": "Лескин Александр Александрович", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "mazhrenov", "full_name": "Мажренов Марат Кланович", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "murzamuhametov", "full_name": "Мурзамұхаметов Олжас Нұржанұлы", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "murat", "full_name": "Мұрат Нұрлан", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "nurahmetov", "full_name": "Нурахметов Алтынбек Ержанулы", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "pashaev", "full_name": "Пашаев Вагиф Салехович", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "sidorenko", "full_name": "Сидоренко Сергей Юрьевич", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "shalakin", "full_name": "Шалакин Дмитрий Александрович", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "belotserkovsky", "full_name": "Белоцерковский Ярослав Константинович", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "bolenkanuly", "full_name": "Бөленқанұлы Айбек", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "dadaev", "full_name": "Дадаев Руслан Руманович", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "zhansoltanov", "full_name": "Жансолтанов Олжас Миратұлы", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "zhanibekov", "full_name": "Жәнібеков Бауыржан Әділұлы", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "kazantsev", "full_name": "Казанцев Александр Дмитриевич", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "kaisanov", "full_name": "Кайсанов Шынгыс Нуржанович", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "kasymov", "full_name": "Қасымов Дияс Нұрболатұлы", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "kydyrhanov", "full_name": "Қыдырханов Оңдасын", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "sagymzhanov", "full_name": "Сағымжанов Бекзат Болатұлы", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "samarhanov", "full_name": "Самарханов Айбек Сергеевич", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "baibagysov", "full_name": "Байбагысов Айдын Нурлыбекович", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-        {"username": "klanov", "full_name": "Қланов Мирас Маратұлы", "role": "engineer", "position": "Инженер ОСС", "hashed_password": "eng", "can_do_ppr": True, "can_duty": True},
-    ]
-    for u in users:
-        existing = db.query(User).filter(User.username == u["username"]).first()
-        if not existing:
-            db.add(User(**u))
-        else:
-            for k, v in u.items():
-                if k != "hashed_password":
-                    setattr(existing, k, v)
-    db.commit()
-    print(f"✓ Сотрудники: {db.query(User).count()}")
+    """Только учётная запись администратора. Сотрудников добавляют вручную."""
+    if not db.query(User).filter(User.username == "admin").first():
+        db.add(User(
+            username="admin",
+            full_name="Администратор",
+            role="admin",
+            position="Начальник ОСС",
+            hashed_password="admin",
+            can_do_ppr=True,
+            can_duty=True,
+            is_active=True,
+        ))
+        db.commit()
+        print("✓ Создан admin / admin")
+    else:
+        print("✓ admin уже есть")
+
 
 
 def import_integration_objects(db: Session):

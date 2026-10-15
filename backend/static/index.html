@@ -41,7 +41,7 @@
         <div id="login-err" class="text-red-600 text-sm hidden"></div>
         <button type="submit" class="w-full py-2.5 bg-teal-700 text-white rounded-lg font-medium">Войти</button>
       </form>
-      <p class="text-xs text-slate-400 mt-4 text-center">admin/admin · head/head · kuryanov/eng</p>
+      <p class="text-xs text-slate-400 mt-4 text-center">Логин по умолчанию: admin / admin</p>
     </div>
   </div>
 
@@ -500,7 +500,7 @@
               </div>
               <div>
                 <label class="block text-slate-600 mb-1">Инженер</label>
-                <input name="engineer" value="Рыков Д.И." class="w-full border rounded-lg px-3 py-2" required>
+                <input name="engineer" value="" class="w-full border rounded-lg px-3 py-2" required>
               </div>
               ${['monitoring_dashboard','critical_services','logs_security','config_backups','channel_utilization','ups_status'].map(f => {
                 const labels = {
