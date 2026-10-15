@@ -62,10 +62,12 @@ class PPRTemplateBase(BaseModel):
     work_direction: str = "network_engineer"
     is_active: bool = True
     department_ids: List[int] = []
+    excluded_department_ids: List[int] = []
 
 
 class PPRTemplateDepartmentsUpdate(BaseModel):
     department_ids: List[int] = []
+    excluded_department_ids: List[int] = []
 
 
 class PPRTemplateOut(PPRTemplateBase):
