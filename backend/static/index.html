@@ -160,6 +160,15 @@
         voles: 'ВОЛС',
         sip: 'СИП',
         network: 'Сеть ОСС',
+        us: 'УС (узел связи)',
+        cod: 'ЦОД',
+        core_router: 'Роутер ядра',
+        core_switch: 'Коммутатор ядра',
+        access_switch: 'Коммутатор доступа',
+        edge_router: 'Граничный роутер',
+        wifi_controller: 'Контроллер Wi-Fi',
+        server: 'Сервер',
+        ups: 'ИБП',
         other: 'Прочее'
       };
       return map[t] || t;
@@ -649,11 +658,24 @@
           <input id="obj-search" value="${objectsFilter.search}" placeholder="Поиск по коду / адресу..." class="border border-slate-300 rounded-lg px-3 py-2 text-sm w-64">
           <select id="obj-type" class="border border-slate-300 rounded-lg px-3 py-2 text-sm">
             <option value="">Все типы</option>
-            <option value="camera_integration" ${objectsFilter.type==='camera_integration'?'selected':''}>ИНТ (камеры)</option>
-            <option value="ovn" ${objectsFilter.type==='ovn'?'selected':''}>ОВН</option>
-            <option value="voles" ${objectsFilter.type==='voles'?'selected':''}>ВОЛС</option>
-            <option value="sip" ${objectsFilter.type==='sip'?'selected':''}>СИП</option>
-            <option value="network" ${objectsFilter.type==='network'?'selected':''}>Сеть ОСС</option>
+            <optgroup label="АПК / линии">
+              <option value="camera_integration" ${objectsFilter.type==='camera_integration'?'selected':''}>ИНТ (камеры)</option>
+              <option value="ovn" ${objectsFilter.type==='ovn'?'selected':''}>ОВН</option>
+              <option value="voles" ${objectsFilter.type==='voles'?'selected':''}>ВОЛС</option>
+              <option value="sip" ${objectsFilter.type==='sip'?'selected':''}>СИП</option>
+            </optgroup>
+            <optgroup label="Сетевая инфраструктура">
+              <option value="us" ${objectsFilter.type==='us'?'selected':''}>УС (узел связи)</option>
+              <option value="cod" ${objectsFilter.type==='cod'?'selected':''}>ЦОД</option>
+              <option value="core_router" ${objectsFilter.type==='core_router'?'selected':''}>Роутер ядра</option>
+              <option value="core_switch" ${objectsFilter.type==='core_switch'?'selected':''}>Коммутатор ядра</option>
+              <option value="access_switch" ${objectsFilter.type==='access_switch'?'selected':''}>Коммутатор доступа</option>
+              <option value="edge_router" ${objectsFilter.type==='edge_router'?'selected':''}>Граничный роутер</option>
+              <option value="wifi_controller" ${objectsFilter.type==='wifi_controller'?'selected':''}>Контроллер Wi-Fi</option>
+              <option value="server" ${objectsFilter.type==='server'?'selected':''}>Сервер</option>
+              <option value="ups" ${objectsFilter.type==='ups'?'selected':''}>ИБП</option>
+              <option value="network" ${objectsFilter.type==='network'?'selected':''}>Сеть ОСС (общее)</option>
+            </optgroup>
             <option value="other" ${objectsFilter.type==='other'?'selected':''}>Прочее</option>
           </select>
           <button onclick="objectsFilter.search=$('#obj-search').value; objectsFilter.type=$('#obj-type').value; loadPage('objects')" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm">Найти</button>
@@ -706,7 +728,16 @@
         ['ovn', 'ОВН (уличные)'],
         ['voles', 'ВОЛС'],
         ['sip', 'СИП'],
-        ['network', 'Сеть ОСС'],
+        ['us', 'УС (узел связи)'],
+        ['cod', 'ЦОД'],
+        ['core_router', 'Роутер ядра'],
+        ['core_switch', 'Коммутатор ядра'],
+        ['access_switch', 'Коммутатор доступа'],
+        ['edge_router', 'Граничный роутер'],
+        ['wifi_controller', 'Контроллер Wi-Fi'],
+        ['server', 'Сервер сетевых служб'],
+        ['ups', 'ИБП'],
+        ['network', 'Сеть ОСС (общее)'],
         ['other', 'Прочее'],
       ];
       const st = (obj && obj.object_type) || 'camera_integration';
