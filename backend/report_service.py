@@ -48,22 +48,23 @@ def export_ppr_period_report(
         query = query.join(PPRPlan.template).filter(PPRTemplate.work_direction == work_direction)
     plans = query.order_by(PPRPlan.planned_date, PPRPlan.id).all()
 
+    departments_by_id = {item.id: item.name for item in db.query(Department).all()}
     wb = Workbook()
     ws = wb.active
     ws.title = "Задачи ППР"
-    ws.merge_cells("A1:K1")
+    ws.merge_cells("A1:L1")
     department = db.query(Department).filter(Department.id == department_id).first() if department_id is not None else None
     period_title = f"Подразделение: {department.name} | " if department else ""
     ws["A1"] = f"ОТЧЁТ О ВЫПОЛНЕНИИ ППР: {period_title}{from_date:%d.%m.%Y} — {to_date:%d.%m.%Y}"
     ws["A1"].font = TITLE_FONT
     ws["A1"].alignment = Alignment(horizontal="center")
-    headers = ["№", "Плановая дата", "Фактическая дата", "Объект", "Адрес", "Направление",
+    headers = ["№", "Плановая дата", "Фактическая дата", "Объект", "Адрес", "Подразделение", "Направление",
                "Работа", "Ответственный", "Статус", "Виды работ", "Комментарий / аудит"]
     for col, value in enumerate(headers, 1):
         ws.cell(row=3, column=col, value=value)
     _header(ws, 3, len(headers))
     ws.freeze_panes = "A4"
-    ws.auto_filter.ref = f"A3:K{max(3, len(plans) + 3)}"
+    ws.auto_filter.ref = f"A3:L{max(3, len(plans) + 3)}"
 
     counts = {"done": 0, "planned": 0, "in_progress": 0, "overdue": 0, "cancelled": 0, "fictitious": 0}
     labels = {"done": "Выполнено", "planned": "Запланировано", "in_progress": "В работе",
@@ -81,6 +82,7 @@ def export_ppr_period_report(
             idx, plan.planned_date, plan.fact_date,
             (obj.code if obj else "—"),
             ((obj.address or obj.name or "") if obj else ""),
+            departments_by_id.get(plan.department_id, "—"),
             (template.work_direction if template else ""),
             plan.title or (template.name if template else ""),
             plan.responsible or (assignee.full_name if assignee else ""),
@@ -105,7 +107,7 @@ def export_ppr_period_report(
                 cell.fill = OVERDUE_FILL
         ws.row_dimensions[row].height = 36
 
-    for i, width in enumerate([6, 14, 14, 18, 38, 20, 38, 28, 22, 28, 60], 1):
+    for i, width in enumerate([6, 14, 14, 18, 38, 24, 20, 38, 28, 22, 28, 60], 1):
         ws.column_dimensions[get_column_letter(i)].width = width
 
     summary = wb.create_sheet("Сводка")
