@@ -1,8 +1,8 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Any
 from datetime import date, datetime
 
-from fio_utils import normalize_fio
+from fio_utils import normalize_fio, parse_fio
 
 
 class ObjectBase(BaseModel):
@@ -164,6 +164,12 @@ class RegulationItem(BaseModel):
 class StaffCreate(BaseModel):
     username: str
     full_name: str
+    # Можно передать явно, иначе заполняются из full_name
+    surname: Optional[str] = None
+    first_name: Optional[str] = None
+    patronymic: Optional[str] = None
+    gender: Optional[str] = None  # 'm' | 'f'
+
     password: str = "eng"
     role: str = "engineer"
     position: Optional[str] = None
@@ -175,14 +181,30 @@ class StaffCreate(BaseModel):
     can_duty: bool = True
     notes: Optional[str] = None
 
-    @field_validator("full_name", mode="before")
-    @classmethod
-    def _norm_full_name(cls, v):
-        return normalize_fio(v) or v
+    @model_validator(mode="after")
+    def _fill_fio_parts(self):
+        """Нормализация + разбор ФИО → surname / first_name / patronymic / gender."""
+        if self.full_name:
+            p = parse_fio(self.full_name)
+            self.full_name = p.get("full") or normalize_fio(self.full_name) or self.full_name
+            if not self.surname:
+                self.surname = p.get("surname")
+            if not self.first_name:
+                self.first_name = p.get("name")
+            if not self.patronymic:
+                self.patronymic = p.get("patronymic")
+            if not self.gender:
+                self.gender = p.get("gender")
+        return self
 
 
 class StaffUpdate(BaseModel):
     full_name: Optional[str] = None
+    surname: Optional[str] = None
+    first_name: Optional[str] = None
+    patronymic: Optional[str] = None
+    gender: Optional[str] = None
+
     role: Optional[str] = None
     position: Optional[str] = None
     department_id: Optional[int] = None
@@ -195,16 +217,31 @@ class StaffUpdate(BaseModel):
     notes: Optional[str] = None
     password: Optional[str] = None
 
-    @field_validator("full_name", mode="before")
-    @classmethod
-    def _norm_full_name(cls, v):
-        return normalize_fio(v) if v is not None else v
+    @model_validator(mode="after")
+    def _fill_fio_parts(self):
+        if self.full_name is not None:
+            p = parse_fio(self.full_name)
+            self.full_name = p.get("full") or normalize_fio(self.full_name) or self.full_name
+            # При обновлении full_name всегда перезаписываем части (если не переданы явно)
+            if self.surname is None:
+                self.surname = p.get("surname")
+            if self.first_name is None:
+                self.first_name = p.get("name")
+            if self.patronymic is None:
+                self.patronymic = p.get("patronymic")
+            if self.gender is None:
+                self.gender = p.get("gender")
+        return self
 
 
 class StaffOut(BaseModel):
     id: int
     username: str
     full_name: Optional[str] = None
+    surname: Optional[str] = None
+    first_name: Optional[str] = None
+    patronymic: Optional[str] = None
+    gender: Optional[str] = None
     role: str
     position: Optional[str] = None
     department_id: Optional[int] = None
