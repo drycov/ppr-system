@@ -1,17 +1,26 @@
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from typing import List, Optional
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from io import BytesIO
 
 from database import get_db, engine, Base
 from models import Object, PPRTemplate, PPRPlan, DailyCheck, User
 import schemas
 import seed
+from auth import (
+    authenticate_user, create_access_token, require_user, require_admin,
+    get_current_user, Token, UserOut, ACCESS_TOKEN_EXPIRE_HOURS
+)
+from planning import generate_plans_for_period, mark_overdue
+from pdf_service import generate_ppr_act
+from excel_export import export_ppr_report
 
 app = FastAPI(
     title="Система управления ППР — ОСС / АПК",
@@ -203,7 +212,7 @@ def list_plans(
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    q = db.query(PPRPlan)
+    q = db.query(PPRPlan).options(joinedload(PPRPlan.object))
     if status:
         q = q.filter(PPRPlan.status == status)
     if object_id:
@@ -319,6 +328,93 @@ def completion_stats(db: Session = Depends(get_db)):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "time": datetime.utcnow().isoformat()}
+
+
+
+# ========== Auth ==========
+@app.post("/api/auth/login", response_model=Token)
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = authenticate_user(db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
+    token = create_access_token(
+        data={"sub": user.username, "role": user.role},
+        expires_delta=timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS),
+    )
+    return Token(
+        access_token=token,
+        token_type="bearer",
+        full_name=user.full_name or user.username,
+        role=user.role,
+    )
+
+
+@app.get("/api/auth/me", response_model=UserOut)
+def me(user: User = Depends(require_user)):
+    return user
+
+
+# ========== Auto-planning ==========
+@app.post("/api/planning/generate")
+def api_generate_plans(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    object_type: Optional[str] = None,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    types = [object_type] if object_type else None
+    result = generate_plans_for_period(db, year, month, object_types=types)
+    return result
+
+
+@app.post("/api/planning/mark-overdue")
+def api_mark_overdue(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    count = mark_overdue(db)
+    return {"marked": count, "message": f"Помечено просроченными: {count}"}
+
+
+# ========== PDF Act ==========
+@app.get("/api/plans/{plan_id}/act.pdf")
+def download_act(plan_id: int, db: Session = Depends(get_db)):
+    plan = db.query(PPRPlan).filter(PPRPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(404, "Задача не найдена")
+    obj = plan.object
+    pdf_bytes = generate_ppr_act(
+        plan_id=plan.id,
+        title=plan.title or "ППР",
+        object_code=obj.code if obj else "—",
+        object_address=obj.address if obj else "",
+        responsible=plan.responsible or "",
+        planned_date=plan.planned_date,
+        fact_date=plan.fact_date or date.today(),
+        work_types=plan.work_types_done or [],
+        comment=plan.comment or "",
+        engineer=plan.responsible or "",
+    )
+    filename = f"act_ppr_{plan_id}_{date.today().isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ========== Excel export ==========
+@app.get("/api/export/ppr.xlsx")
+def export_excel(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    db: Session = Depends(get_db),
+):
+    data = export_ppr_report(db, year, month)
+    filename = f"Otchet_PPR_APK_{year}_{month:02d}.xlsx"
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ========== Static frontend ==========

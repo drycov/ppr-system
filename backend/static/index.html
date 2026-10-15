@@ -21,6 +21,30 @@
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800">
+  <!-- Login overlay -->
+  <div id="login-overlay" class="fixed inset-0 z-[100] bg-gradient-to-br from-teal-800 to-teal-950 flex items-center justify-center" style="display:none">
+    <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm mx-4">
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 rounded-xl bg-teal-700 text-white font-bold text-2xl flex items-center justify-center mx-auto mb-3">П</div>
+        <h1 class="text-xl font-bold">Система ППР</h1>
+        <p class="text-sm text-slate-500">ОСС / АПК · Усть-Каменогорск</p>
+      </div>
+      <form id="login-form" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Логин</label>
+          <input name="username" value="admin" class="w-full border rounded-lg px-3 py-2 text-sm" required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Пароль</label>
+          <input name="password" type="password" value="admin" class="w-full border rounded-lg px-3 py-2 text-sm" required>
+        </div>
+        <div id="login-err" class="text-red-600 text-sm hidden"></div>
+        <button type="submit" class="w-full py-2.5 bg-teal-700 text-white rounded-lg font-medium">Войти</button>
+      </form>
+      <p class="text-xs text-slate-400 mt-4 text-center">admin/admin · head/head · kuryanov/eng</p>
+    </div>
+  </div>
+
   <div class="flex h-screen overflow-hidden">
     <!-- Sidebar -->
     <aside class="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0">
@@ -126,16 +150,47 @@
       return map[t] || t;
     }
 
+    let TOKEN = localStorage.getItem('ppr_token') || '';
+    let CURRENT_USER = JSON.parse(localStorage.getItem('ppr_user') || 'null');
+
     async function api(path, opts = {}) {
-      const res = await fetch(API + path, {
-        headers: { 'Content-Type': 'application/json', ...opts.headers },
-        ...opts
+      const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+      if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
+      const res = await fetch(API + path, { ...opts, headers });
+      if (res.status === 401) { localStorage.clear(); location.reload(); }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(typeof err.detail === 'string' ? err.detail : (res.statusText));
+      }
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) return res.json();
+      return res;
+    }
+
+    async function doLogin(username, password) {
+      const body = new URLSearchParams({ username, password });
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || res.statusText);
+        throw new Error(err.detail || 'Ошибка входа');
       }
-      return res.json();
+      const data = await res.json();
+      TOKEN = data.access_token;
+      CURRENT_USER = { full_name: data.full_name, role: data.role, username };
+      localStorage.setItem('ppr_token', TOKEN);
+      localStorage.setItem('ppr_user', JSON.stringify(CURRENT_USER));
+      return data;
+    }
+
+    function doLogout() {
+      TOKEN = ''; CURRENT_USER = null;
+      localStorage.removeItem('ppr_token');
+      localStorage.removeItem('ppr_user');
+      location.reload();
     }
 
     // ========== Navigation ==========
@@ -224,7 +279,10 @@
           <div class="flex flex-wrap gap-3">
             <button onclick="document.querySelector('[data-page=plans]').click()" class="px-4 py-2 bg-teal-700 text-white rounded-lg text-sm hover:bg-teal-800">Открыть задачи ППР</button>
             <button onclick="document.querySelector('[data-page=daily]').click()" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900">Сдать ежедневный контроль</button>
-            <button onclick="document.querySelector('[data-page=regulations]').click()" class="px-4 py-2 border border-slate-300 rounded-lg text-sm hover:bg-slate-50">Посмотреть регламент</button>
+            <button onclick="generatePlansNow()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">Сгенерировать план (месяц)</button>
+            <button onclick="exportExcelNow()" class="px-4 py-2 bg-emerald-700 text-white rounded-lg text-sm hover:bg-emerald-800">Экспорт Excel</button>
+            <button onclick="document.querySelector('[data-page=regulations]').click()" class="px-4 py-2 border border-slate-300 rounded-lg text-sm hover:bg-slate-50">Регламент</button>
+            <button onclick="doLogout()" class="px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50">Выйти</button>
           </div>
         </div>
       `;
@@ -303,6 +361,7 @@
                     <td class="px-4 py-3 text-xs">${(p.work_types_done || []).join(', ') || '—'}</td>
                     <td class="px-4 py-3">
                       ${p.status !== 'done' ? `<button onclick="completePlan(${p.id})" class="text-teal-700 hover:underline text-xs font-medium">Выполнить</button>` : ''}
+                      <a href="/api/plans/${p.id}/act.pdf" target="_blank" class="text-slate-600 hover:underline text-xs ml-2">PDF</a>
                     </td>
                   </tr>
                 `).join('')}
@@ -588,11 +647,49 @@
       $('#modal').classList.remove('flex');
     }
 
-    // ========== Init ==========
+    
+    async function generatePlansNow() {
+      const n = new Date();
+      if (!confirm('Создать задачи ППР на ' + (n.getMonth()+1) + '.' + n.getFullYear() + '?')) return;
+      try {
+        const r = await api('/api/planning/generate?year=' + n.getFullYear() + '&month=' + (n.getMonth()+1), { method: 'POST' });
+        alert(r.message || 'Готово');
+        loadPage('dashboard');
+      } catch(e) { alert(e.message); }
+    }
+    function exportExcelNow() {
+      const n = new Date();
+      window.open('/api/export/ppr.xlsx?year=' + n.getFullYear() + '&month=' + (n.getMonth()+1), '_blank');
+    }
+
+// ========== Init ==========
     document.getElementById('current-date').textContent = new Date().toLocaleDateString('ru-RU', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
     });
-    loadPage('dashboard');
+
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) {
+      loginForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        try {
+          await doLogin(fd.get('username'), fd.get('password'));
+          document.getElementById('login-overlay').style.display = 'none';
+          loadPage('dashboard');
+          lucide.createIcons();
+        } catch (err) {
+          const el = document.getElementById('login-err');
+          el.textContent = err.message;
+          el.classList.remove('hidden');
+        }
+      };
+    }
+
+    if (!TOKEN) {
+      document.getElementById('login-overlay').style.display = 'flex';
+    } else {
+      loadPage('dashboard');
+    }
     lucide.createIcons();
   </script>
 </body>
