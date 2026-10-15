@@ -47,6 +47,9 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def get_password_hash(password: str) -> str:
+    # bcrypt принимает максимум 72 байта; passlib + bcrypt>=4.1 часто падают без явной обрезки
+    if isinstance(password, str):
+        password = password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
     return pwd_context.hash(password)
 
 
