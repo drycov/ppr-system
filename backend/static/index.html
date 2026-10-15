@@ -614,8 +614,8 @@
           </div>
           <div>
             <label class="block text-sm font-medium mb-1">Объект</label>
-            <select name="object_id" class="w-full border rounded-lg px-3 py-2 text-sm">
-              <option value="">Без объекта</option>
+            <select name="object_id" class="w-full border rounded-lg px-3 py-2 text-sm" required>
+              <option value="">Выберите объект</option>
               ${objects.map(o => `<option value="${o.id}">${o.code} — ${o.address || o.name || ''}</option>`).join('')}
             </select>
           </div>
