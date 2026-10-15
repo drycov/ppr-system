@@ -176,8 +176,11 @@ class DutySchedule(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     duty_date = Column(Date, index=True, nullable=False)
+    # NULL means organization-wide duty; otherwise the duty belongs to one department.
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     shift = Column(String(30), default="day")  # day / night / full
+    department = relationship("Department")
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
