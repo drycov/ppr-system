@@ -652,6 +652,7 @@ def export_excel(
     to_date: Optional[date] = Query(None),
     object_type: Optional[str] = Query(None),
     work_direction: Optional[str] = Query(None),
+    department_id: Optional[int] = Query(None, ge=1),
     db: Session = Depends(get_db),
     user: User = Depends(require_user),
 ):
