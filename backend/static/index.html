@@ -752,8 +752,7 @@
       if (objectsFilter.type) params.set('object_type', objectsFilter.type);
       if (objectsFilter.search) params.set('search', objectsFilter.search);
       params.set('limit', '200');
-      const [objects, departments] = await Promise.all([api('/api/objects?' + params), api('/api/departments?active_only=true').catch(() => [])]);
-      const departmentNames = Object.fromEntries(departments.map(d => [d.id, d.name]));
+      const objects = await api('/api/objects?' + params);
 
       el.innerHTML = `
         <div class="flex flex-wrap gap-3 mb-4 items-center">
@@ -790,7 +789,6 @@
                 <th class="px-4 py-3 font-medium">Код</th>
                 <th class="px-4 py-3 font-medium">Адрес / Название</th>
                 <th class="px-4 py-3 font-medium">Тип</th>
-                <th class="px-4 py-3 font-medium">Подразделение</th>
                 <th class="px-4 py-3 font-medium">Камер</th>
                 <th class="px-4 py-3 font-medium">Ответственный</th>
                 <th class="px-4 py-3 font-medium">Статус</th>
@@ -798,13 +796,12 @@
               </tr>
             </thead>
             <tbody>
-              ${objects.length === 0 ? '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Нет объектов — нажмите «Добавить объект»</td></tr>' :
+              ${objects.length === 0 ? '<tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">Нет объектов — нажмите «Добавить объект»</td></tr>' :
                 objects.map(o => `
                 <tr class="table-row border-t border-slate-50">
                   <td class="px-4 py-3 font-mono text-xs font-medium">${o.code}</td>
                   <td class="px-4 py-3 max-w-xs truncate" title="${(o.address || '').replace(/"/g,'&quot;')}">${o.address || o.name || '—'}</td>
                   <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${typeLabel(o.object_type)}</span></td>
-                  <td class="px-4 py-3 text-xs">${departmentNames[o.department_id] || 'Не назначено'}</td>
                   <td class="px-4 py-3">${o.cameras_count || '—'}</td>
                   <td class="px-4 py-3 text-xs">${o.responsible_default || '—'}</td>
                   <td class="px-4 py-3"><span class="text-xs ${o.status==='active'?'text-teal-700':'text-slate-400'}">${o.status}</span></td>
@@ -827,7 +824,6 @@
         obj = await api('/api/objects/' + objectId);
       }
       const isEdit = !!obj;
-      const departments = await api('/api/departments?active_only=true').catch(() => []);
       const typeOpts = [
         ['camera_integration', 'ИНТ (интеграция камер)'],
         ['ovn', 'ОВН (уличные)'],
@@ -869,13 +865,6 @@
           <div>
             <label class="block text-slate-600 mb-1">Адрес</label>
             <input name="address" value="${obj ? (obj.address||'').replace(/"/g,'&quot;') : ''}" class="w-full border rounded-lg px-3 py-2" placeholder="г. Усть-Каменогорск, ...">
-          </div>
-          <div>
-            <label class="block text-slate-600 mb-1">Подразделение</label>
-            <select name="department_id" class="w-full border rounded-lg px-3 py-2">
-              <option value="">Не назначено</option>
-              ${departments.map(d => `<option value="${d.id}" ${obj && Number(obj.department_id)===Number(d.id)?'selected':''}>${d.name}</option>`).join('')}
-            </select>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
