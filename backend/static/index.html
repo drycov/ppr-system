@@ -1581,9 +1581,17 @@ async function importExcelNow() {
       }
     }
 
-    function exportExcelNow() {
+    async function exportExcelNow() {
       const n = new Date();
-      downloadPprExcel('year=' + n.getFullYear() + '&month=' + (n.getMonth()+1));
+      const departments = await api('/api/departments?active_only=true').catch(() => []);
+      const options = departments.map(d => d.id + ' — ' + d.name).join('\\n');
+      const choice = prompt('Отчёт ППР: введите ID подразделения или оставьте пустым для всех подразделений.\\n' + options, '');
+      if (choice === null) return;
+      const departmentId = choice.trim();
+      if (departmentId && !departments.some(d => String(d.id) === departmentId)) { alert('Подразделение с таким ID не найдено.'); return; }
+      let query = 'year=' + n.getFullYear() + '&month=' + (n.getMonth()+1);
+      if (departmentId) query += '&department_id=' + encodeURIComponent(departmentId);
+      downloadPprExcel(query);
     }
 
     async function exportExcelPeriodNow() {
