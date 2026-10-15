@@ -162,7 +162,7 @@ def generate_plans_for_period(
     year: int,
     month: int,
     object_types: list = None,
-    only_without_plan: bool = True,
+    only_without_plan: bool | None = None,
     prefer_duty: bool = True,
     work_direction: str = None,
     include_daily_templates: bool | None = None,
@@ -173,6 +173,8 @@ def generate_plans_for_period(
     - по шаблонам (общесистемные network + привязка к объектам camera/voles)
     - исполнитель по work_direction / specialty
     """
+    if only_without_plan is None:
+        only_without_plan = bool(get_setting(db, "planning.only_without_plan"))
     if prefer_duty is None:
         prefer_duty = bool(get_setting(db, "planning.prefer_duty")) and bool(get_setting(db, "duty.enabled"))
     if include_daily_templates is None:
