@@ -76,6 +76,8 @@ def on_startup():
             seed.seed_sample_plans(db)
     finally:
         db.close()
+    # Start the configured background scheduler after schema and seed initialization.
+    start_scheduler()
 
 
 # ========== System settings ==========
