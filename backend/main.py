@@ -11,7 +11,7 @@ from pathlib import Path
 from io import BytesIO
 
 from database import get_db, engine, Base
-from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule, Department, Position, SystemRole, RelocationLog, NotificationLog
+from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule, Department, Position, SystemRole, RelocationLog, NotificationLog, SystemSetting, SettingsAudit
 import schemas
 import seed
 from auth import (
@@ -25,6 +25,7 @@ from excel_export import export_ppr_report
 from import_excel import import_from_excel
 from scheduler import start_scheduler
 from notifications import notify_message
+from settings_service import SETTINGS_CATALOG, CATALOG_BY_KEY, get_settings_snapshot, save_settings, get_setting
 
 app = FastAPI(
     title="Система управления ППР — ОСС / АПК",
@@ -75,6 +76,71 @@ def on_startup():
             seed.seed_sample_plans(db)
     finally:
         db.close()
+
+
+# ========== System settings ==========
+@app.get("/api/settings")
+def list_system_settings(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    return {"settings": get_settings_snapshot(db), "categories": list(dict.fromkeys(x["category"] for x in SETTINGS_CATALOG))}
+
+
+@app.put("/api/settings")
+def update_system_settings(payload: dict, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    values = payload.get("settings", payload)
+    try:
+        changed = save_settings(db, values, user.username or user.full_name or str(user.id))
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {"ok": True, "changed": changed, "settings": get_settings_snapshot(db)}
+
+
+@app.post("/api/settings/reset")
+def reset_system_settings(payload: dict, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    keys = payload.get("keys", [])
+    if not isinstance(keys, list) or any(not isinstance(k, str) for k in keys):
+        raise HTTPException(422, "keys должен быть массивом строк")
+    unknown = sorted(set(keys) - set(CATALOG_BY_KEY))
+    if unknown:
+        raise HTTPException(422, "Неизвестные настройки: " + ", ".join(unknown))
+    query = db.query(SystemSetting)
+    if keys:
+        query = query.filter(SystemSetting.key.in_(keys))
+    rows = query.all()
+    changed = {}
+    for row in rows:
+        spec = CATALOG_BY_KEY[row.key]
+        changed[row.key] = {"old": "***" if spec["type"] == "secret" else row.value, "new": "default"}
+        db.delete(row)
+    if changed:
+        db.add(SettingsAudit(actor=user.username or user.full_name or str(user.id), action="reset", changes=changed, created_at=datetime.utcnow()))
+        db.commit()
+    return {"ok": True, "reset": list(changed), "settings": get_settings_snapshot(db)}
+
+
+@app.get("/api/settings/export")
+def export_system_settings(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    values = {item["key"]: item["value"] for item in get_settings_snapshot(db, include_secrets=True) if item["type"] != "secret"}
+    return {"version": 1, "exported_at": datetime.utcnow().isoformat() + "Z", "settings": values}
+
+
+@app.post("/api/settings/import")
+def import_system_settings(payload: dict, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    values = payload.get("settings")
+    if not isinstance(values, dict):
+        raise HTTPException(422, "Ожидается объект settings из экспорта")
+    try:
+        changed = save_settings(db, values, user.username or user.full_name or str(user.id))
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {"ok": True, "changed": changed, "settings": get_settings_snapshot(db)}
+
+
+@app.get("/api/settings/audit")
+def list_settings_audit(limit: int = Query(100, ge=1, le=500), user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    rows = db.query(SettingsAudit).order_by(SettingsAudit.created_at.desc()).limit(limit).all()
+    return [{"id": r.id, "actor": r.actor, "action": r.action, "changes": r.changes, "created_at": r.created_at.isoformat() if r.created_at else None} for r in rows]
 
 
 # ========== Dashboard ==========
