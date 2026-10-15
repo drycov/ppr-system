@@ -32,11 +32,11 @@
       <form id="login-form" class="space-y-4">
         <div>
           <label class="block text-sm font-medium mb-1">Логин</label>
-          <input name="username" value="admin" class="w-full border rounded-lg px-3 py-2 text-sm" required>
+          <input name="username" value="admin" class="w-full border rounded-lg px-3 py-2 text-sm" required autocomplete="username">
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">Пароль</label>
-          <input name="password" type="password" value="admin" class="w-full border rounded-lg px-3 py-2 text-sm" required>
+          <input name="password" type="password" value="admin" class="w-full border rounded-lg px-3 py-2 text-sm" required autocomplete="current-password">
         </div>
         <div id="login-err" class="text-red-600 text-sm hidden"></div>
         <button type="submit" class="w-full py-2.5 bg-teal-700 text-white rounded-lg font-medium">Войти</button>
@@ -478,7 +478,7 @@
       };
     }
 
-    async async function completePlan(id) {
+    async function completePlan(id) {
       if (!confirm('Отметить задачу как выполненную?')) return;
       try {
         await api(`/api/plans/${id}/complete?work_types=7.5&work_types=7.6&work_types=7.7&work_types=7.8`, { method: 'POST' });
@@ -1286,8 +1286,8 @@ async function renderStaff(el) {
       $('#modal-title').textContent = 'Новый сотрудник';
       $('#modal-body').innerHTML = `
         <form id="staff-form" class="space-y-3 text-sm">
-          <div><label class="block mb-1">Логин</label><input name="username" class="w-full border rounded-lg px-3 py-2" required></div>
-          <div><label class="block mb-1">Пароль</label><input name="password" type="password" value="eng" class="w-full border rounded-lg px-3 py-2"></div>
+          <div><label class="block mb-1">Логин</label><input name="username" class="w-full border rounded-lg px-3 py-2" required autocomplete="username"></div>
+          <div><label class="block mb-1">Пароль</label><input name="password" type="password" value="eng" class="w-full border rounded-lg px-3 py-2" autocomplete="current-password"></div>
           <div><label class="block mb-1">ФИО</label><input name="full_name" class="w-full border rounded-lg px-3 py-2" required></div>
           <div><label class="block mb-1">Подразделение</label>
             <select name="department_id" id="staff-dept" class="w-full border rounded-lg px-3 py-2">
