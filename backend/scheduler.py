@@ -16,23 +16,26 @@ def _run_daily_jobs():
     from database import SessionLocal
     from planning import mark_overdue, generate_plans_for_period
     from notifications import notify_overdue, notify_today_duties
+    from settings_service import get_setting
 
     db = SessionLocal()
     try:
         n = mark_overdue(db)
         logger.info("mark_overdue: %s", n)
-        if n:
+        if n and get_setting(db, 'notifications.overdue_enabled'):
             notify_overdue(db, n)
 
         # 1-е число месяца — автогенерация плана
         today = date.today()
-        if today.day == 1:
+        if today.day == 1 and get_setting(db, 'planning.auto_generate'):
             result = generate_plans_for_period(db, today.year, today.month)
             logger.info("auto generate plans: %s", result)
             from notifications import notify_message
-            notify_message(db, "auto_plan", result.get("message", "План на месяц создан"))
+            if get_setting(db, "notifications.auto_plan_enabled"):
+                notify_message(db, "auto_plan", result.get("message", "План на месяц создан"))
 
-        notify_today_duties(db)
+        if get_setting(db, 'notifications.duty_enabled'):
+            notify_today_duties(db)
     except Exception as e:
         logger.exception("daily jobs failed: %s", e)
     finally:
@@ -53,8 +56,19 @@ def _loop(interval_sec: int = 3600):
         _stop.wait(interval_sec)
 
 
-def start_scheduler(interval_sec: int = 3600):
+def start_scheduler(interval_sec: int | None = None):
     global _thread
+    if interval_sec is None:
+        try:
+            from database import SessionLocal
+            from settings_service import get_setting
+            db = SessionLocal()
+            try:
+                interval_sec = int(get_setting(db, 'scheduler.interval_seconds') or 3600)
+            finally:
+                db.close()
+        except Exception:
+            interval_sec = 3600
     if _thread and _thread.is_alive():
         return
     _stop.clear()

@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from calendar import monthrange
 from sqlalchemy.orm import Session
 from models import Object, PPRTemplate, PPRPlan, User, DutySchedule
+from settings_service import get_setting
 
 
 NETWORK_OBJECT_TYPES = {
@@ -84,7 +85,7 @@ def resolve_assignee_for_template(
     template: PPRTemplate,
     planned: date,
     index: int,
-    prefer_duty: bool = True,
+    prefer_duty: bool | None = None,
     department_id: int | None = None,
 ) -> tuple:
     """
@@ -161,10 +162,10 @@ def generate_plans_for_period(
     year: int,
     month: int,
     object_types: list = None,
-    only_without_plan: bool = True,
+    only_without_plan: bool | None = None,
     prefer_duty: bool = True,
     work_direction: str = None,
-    include_daily_templates: bool = False,
+    include_daily_templates: bool | None = None,
     department_id: int | None = None,
 ) -> dict:
     """
@@ -172,6 +173,12 @@ def generate_plans_for_period(
     - по шаблонам (общесистемные network + привязка к объектам camera/voles)
     - исполнитель по work_direction / specialty
     """
+    if only_without_plan is None:
+        only_without_plan = bool(get_setting(db, "planning.only_without_plan"))
+    if prefer_duty is None:
+        prefer_duty = bool(get_setting(db, "planning.prefer_duty")) and bool(get_setting(db, "duty.enabled"))
+    if include_daily_templates is None:
+        include_daily_templates = bool(get_setting(db, "planning.include_daily_templates"))
     if department_id is None:
         from models import Department
         departments = db.query(Department).filter(Department.is_active == True).order_by(Department.id).all()
