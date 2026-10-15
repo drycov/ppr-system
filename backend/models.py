@@ -255,3 +255,22 @@ class NotificationLog(Base):
     message = Column(Text)
     meta_json = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SystemSetting(Base):
+    """Настройка системы; отсутствие строки означает использование default."""
+    __tablename__ = "system_settings"
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(160), unique=True, nullable=False, index=True)
+    value = Column(JSON, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SettingsAudit(Base):
+    """Аудит изменений без открытых значений секретов."""
+    __tablename__ = "settings_audit"
+    id = Column(Integer, primary_key=True, index=True)
+    actor = Column(String(150), nullable=False)
+    action = Column(String(30), nullable=False)
+    changes = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
