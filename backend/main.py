@@ -921,6 +921,15 @@ def deactivate_staff(staff_id: int, user: User = Depends(require_user), db: Sess
 
 
 # ========== Duty schedule (дежурства) ==========
+def _check_duty_scope(user: User, department_id: Optional[int]) -> None:
+    """Администратор видит все графики; руководитель — общий и своего подразделения."""
+    if user.role == "admin":
+        return
+    if user.role == "head" and (department_id is None or department_id == user.department_id):
+        return
+    raise HTTPException(403, "Доступ разрешён только администратору или руководителю своего подразделения")
+
+
 @app.get("/api/duties", response_model=List[schemas.DutyOut])
 def list_duties(
     from_date: Optional[date] = None,
@@ -928,9 +937,14 @@ def list_duties(
     user_id: Optional[int] = None,
     department_id: Optional[int] = None,
     scope: Optional[str] = None,
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
+    if user.role not in ("admin", "head"):
+        raise HTTPException(403, "Графики дежурств доступны администратору и руководителям подразделений")
     q = db.query(DutySchedule).options(joinedload(DutySchedule.user))
+    if user.role == "head":
+        q = q.filter((DutySchedule.department_id == user.department_id) | (DutySchedule.department_id.is_(None)))
     if from_date:
         q = q.filter(DutySchedule.duty_date >= from_date)
     if to_date:
@@ -945,12 +959,18 @@ def list_duties(
 
 
 @app.get("/api/duties/today")
-def duty_today(db: Session = Depends(get_db)):
+def duty_today(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if user.role not in ("admin", "head"):
+        raise HTTPException(403, "Графики дежурств доступны администратору и руководителям подразделений")
     today = date.today()
     duties = (
         db.query(DutySchedule)
         .options(joinedload(DutySchedule.user))
         .filter(DutySchedule.duty_date == today)
+        .filter(
+            ((DutySchedule.department_id == user.department_id) | (DutySchedule.department_id.is_(None)))
+            if user.role == "head" else True
+        )
         .order_by(DutySchedule.department_id, DutySchedule.id)
         .all()
     )
@@ -970,6 +990,7 @@ def duty_today(db: Session = Depends(get_db)):
 
 @app.post("/api/duties", response_model=schemas.DutyOut)
 def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    _check_duty_scope(user, data.department_id)
     shift = (data.shift or "day").strip().lower()
     if shift not in {"day", "night", "full"}:
         raise HTTPException(422, "Смена должна быть day, night или full")
@@ -1010,6 +1031,7 @@ def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db
 
 @app.post("/api/duties/bulk")
 def create_duties_bulk(data: schemas.DutyBulkCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    _check_duty_scope(user, data.department_id)
     shift = (data.shift or "day").strip().lower()
     if shift not in {"day", "night", "full"}:
         raise HTTPException(422, "Смена должна быть day, night или full")
@@ -1059,6 +1081,7 @@ def delete_duty(duty_id: int, user: User = Depends(require_user), db: Session = 
     d = db.query(DutySchedule).filter(DutySchedule.id == duty_id).first()
     if not d:
         raise HTTPException(404, "Запись не найдена")
+    _check_duty_scope(user, d.department_id)
     db.delete(d)
     db.commit()
     return {"ok": True}
@@ -1071,6 +1094,8 @@ def api_reassign_by_duty(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
+    if user.role != "admin":
+        raise HTTPException(403, "Массовое переназначение задач по всем подразделениям доступно только администратору")
     return reassign_plans_by_duty(db, year, month)
 
 
