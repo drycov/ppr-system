@@ -33,7 +33,6 @@ class ObjectUpdate(BaseModel):
     cameras_count: Optional[int] = None
     status: Optional[str] = None
     responsible_default: Optional[str] = None
-    department_id: Optional[int] = None
     notes: Optional[str] = None
 
     @field_validator("responsible_default", mode="before")
