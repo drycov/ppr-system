@@ -52,18 +52,28 @@ class Object(Base):
     ppr_plans = relationship("PPRPlan", back_populates="object")
 
 
+class WorkDirection(str, enum.Enum):
+    """Направление исполнения ППР (организационное распределение)"""
+    SYSADMIN = "sysadmin"              # Системные администраторы
+    INSTALLER = "installer"            # Монтажники
+    NETWORK_ENGINEER = "network_engineer"  # Сетевые инженеры
+    HEAD = "head"                      # Начальник ОСС (инвентаризация и т.п.)
+    ANY = "any"                        # любой исполнитель ППР
+
+
 class PPRTemplate(Base):
     """Шаблоны регламентных работ из Положения ОСС и АПК"""
     __tablename__ = "ppr_templates"
 
     id = Column(Integer, primary_key=True, index=True)
-    code = Column(String(20), unique=True)  # 1, 2, 7.5, 9.2 ...
+    code = Column(String(30), unique=True)  # 1, 2, SA-1, NE-3, 7.5 ...
     name = Column(String(255), nullable=False)
     description = Column(Text)
-    object_types = Column(JSON, default=list)  # список типов объектов
+    object_types = Column(JSON, default=list)  # список типов объектов; [] = общесистемные
     work_items = Column(JSON, default=list)    # список конкретных работ
     periodicity = Column(String(30), default=Periodicity.MONTHLY.value)
-    responsible_role = Column(String(50), default="engineer")
+    responsible_role = Column(String(50), default="engineer")  # системная роль
+    work_direction = Column(String(40), default="network_engineer")  # sysadmin/installer/network_engineer
     is_active = Column(Boolean, default=True)
 
 
@@ -133,6 +143,8 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     can_do_ppr = Column(Boolean, default=True)
     can_duty = Column(Boolean, default=True)
+    # Направление ППР: sysadmin | installer | network_engineer | None
+    ppr_specialty = Column(String(40), nullable=True)
     hashed_password = Column(String(255))
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
