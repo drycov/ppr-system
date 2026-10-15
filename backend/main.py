@@ -44,13 +44,17 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
-    # Добавляем подразделение объектам в существующей БД без потери данных.
-    columns = {column["name"] for column in inspect(engine).get_columns("objects")}
-    if "department_id" not in columns:
+    # Подразделение хранится у задачи ППР, а не у объекта.
+    plan_columns = {column["name"] for column in inspect(engine).get_columns("ppr_plans")}
+    if "department_id" not in plan_columns:
         with engine.begin() as conn:
-            conn.exec_driver_sql("ALTER TABLE objects ADD COLUMN department_id INTEGER REFERENCES departments(id)")
+            conn.exec_driver_sql("ALTER TABLE ppr_plans ADD COLUMN department_id INTEGER REFERENCES departments(id)")
+    template_columns = {column["name"] for column in inspect(engine).get_columns("ppr_templates")}
+    if "department_ids" not in template_columns:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TABLE ppr_templates ADD COLUMN department_ids JSON NOT NULL DEFAULT '[]'")
     with engine.begin() as conn:
-        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_objects_department_id ON objects (department_id)")
+        conn.exec_driver_sql("UPDATE ppr_plans SET department_id = (SELECT department_id FROM users WHERE users.id = ppr_plans.assignee_id) WHERE department_id IS NULL AND assignee_id IS NOT NULL")
     # Автосид при первом запуске
     db = next(get_db())
     try:
@@ -184,6 +188,25 @@ def update_object(object_id: int, data: schemas.ObjectUpdate, db: Session = Depe
 @app.get("/api/templates", response_model=List[schemas.PPRTemplateOut])
 def list_templates(db: Session = Depends(get_db)):
     return db.query(PPRTemplate).filter(PPRTemplate.is_active == True).order_by(PPRTemplate.code).all()
+
+@app.patch("/api/templates/{template_id}/departments")
+def assign_template_departments(
+    template_id: int,
+    payload: schemas.PPRTemplateDepartmentsUpdate,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    template = db.query(PPRTemplate).filter(PPRTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(404, "Регламент не найден")
+    ids = sorted(set(payload.department_ids))
+    if ids:
+        found = {row[0] for row in db.query(Department.id).filter(Department.id.in_(ids)).all()}
+        if set(ids) - found:
+            raise HTTPException(422, f"Не найдены подразделения: {sorted(set(ids) - found)}")
+    template.department_ids = ids
+    db.commit()
+    return {"ok": True, "template_id": template.id, "department_ids": ids}
 
 
 @app.get("/api/regulations")
@@ -769,7 +792,6 @@ def create_staff(data: schemas.StaffCreate, user: User = Depends(require_user), 
         hashed_password=get_password_hash(data.password),
         role=data.role,
         position=pos_name,
-        department_id=data.department_id,
         position_id=data.position_id,
         phone=data.phone,
         email=data.email,
