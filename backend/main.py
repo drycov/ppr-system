@@ -25,8 +25,6 @@ from excel_export import export_ppr_report
 from import_excel import import_from_excel
 from scheduler import start_scheduler
 from notifications import notify_message
-from zabbix_client import ping as zabbix_ping, get_host_status
-from authentik_oidc import is_configured as authentik_configured, discovery as authentik_discovery, login_url as authentik_login_url
 
 app = FastAPI(
     title="Система управления ППР — ОСС / АПК",
@@ -277,6 +275,78 @@ def complete_plan(
 
 
 # ========== Daily Checks ==========
+def _enrich_daily_out(check: DailyCheck) -> dict:
+    """Добавляет done_count / total_count и нормализует checklist."""
+    items = check.checklist or []
+    if not items:
+        # собираем из старых полей
+        tpl = schemas.DAILY_CHECKLIST_TEMPLATE
+        items = []
+        for t in tpl:
+            field = t["field"]
+            if field == "incidents_logged":
+                done = bool(getattr(check, "incidents_logged", False))
+                status = "ok" if done else "skip"
+            else:
+                status = getattr(check, field, "ok") or "ok"
+                done = status in ("ok", "issues")
+            items.append({
+                "code": t["code"],
+                "name": t["name"],
+                "done": done,
+                "status": status if field != "incidents_logged" else ("ok" if done else "skip"),
+                "note": None,
+            })
+    done_count = sum(1 for i in items if (i.get("done") if isinstance(i, dict) else getattr(i, "done", False)))
+    total = len(items) or len(schemas.DAILY_CHECKLIST_TEMPLATE)
+    return {
+        "id": check.id,
+        "check_date": check.check_date,
+        "engineer": check.engineer,
+        "monitoring_dashboard": check.monitoring_dashboard,
+        "critical_services": check.critical_services,
+        "logs_security": check.logs_security,
+        "config_backups": check.config_backups,
+        "channel_utilization": check.channel_utilization,
+        "ups_status": check.ups_status,
+        "incidents_logged": check.incidents_logged,
+        "checklist": items,
+        "notes": check.notes,
+        "created_at": check.created_at,
+        "done_count": done_count,
+        "total_count": total,
+    }
+
+
+def _apply_checklist_to_fields(payload: dict) -> dict:
+    """Синхронизирует checklist → плоские поля модели."""
+    cl = payload.get("checklist") or []
+    if not cl:
+        return payload
+    field_by_code = {t["code"]: t["field"] for t in schemas.DAILY_CHECKLIST_TEMPLATE}
+    for item in cl:
+        if hasattr(item, "model_dump"):
+            item = item.model_dump()
+        code = item.get("code")
+        field = field_by_code.get(code)
+        if not field:
+            continue
+        done = bool(item.get("done"))
+        status = item.get("status") or "ok"
+        if field == "incidents_logged":
+            payload["incidents_logged"] = done
+        else:
+            if not done:
+                payload[field] = "skip"
+            else:
+                payload[field] = status if status in ("ok", "issues") else "ok"
+    # сериализуем checklist в list[dict]
+    payload["checklist"] = [
+        (i.model_dump() if hasattr(i, "model_dump") else i) for i in cl
+    ]
+    return payload
+
+
 @app.get("/api/daily-checks", response_model=List[schemas.DailyCheckOut])
 def list_daily_checks(
     from_date: Optional[date] = None,
@@ -289,7 +359,17 @@ def list_daily_checks(
         q = q.filter(DailyCheck.check_date >= from_date)
     if to_date:
         q = q.filter(DailyCheck.check_date <= to_date)
-    return q.order_by(DailyCheck.check_date.desc()).limit(limit).all()
+    rows = q.order_by(DailyCheck.check_date.desc()).limit(limit).all()
+    return [_enrich_daily_out(r) for r in rows]
+
+
+@app.get("/api/daily-checks/template")
+def daily_checklist_template():
+    """Эталонный чек-лист ежедневного контроля (раздел 2)."""
+    return {
+        "title": "Ежедневный операционный контроль",
+        "items": schemas.DAILY_CHECKLIST_TEMPLATE,
+    }
 
 
 @app.post("/api/daily-checks", response_model=schemas.DailyCheckOut)
@@ -300,11 +380,27 @@ def create_daily_check(data: schemas.DailyCheckCreate, db: Session = Depends(get
     ).first()
     if existing:
         raise HTTPException(400, "Проверка на эту дату уже существует")
-    check = DailyCheck(**data.model_dump())
+    payload = _apply_checklist_to_fields(data.model_dump())
+    check = DailyCheck(**payload)
     db.add(check)
     db.commit()
     db.refresh(check)
-    return check
+    return _enrich_daily_out(check)
+
+
+@app.patch("/api/daily-checks/{check_id}", response_model=schemas.DailyCheckOut)
+def update_daily_check(check_id: int, data: schemas.DailyCheckUpdate, db: Session = Depends(get_db)):
+    check = db.query(DailyCheck).filter(DailyCheck.id == check_id).first()
+    if not check:
+        raise HTTPException(404, "Проверка не найдена")
+    payload = data.model_dump(exclude_unset=True)
+    if "checklist" in payload:
+        payload = _apply_checklist_to_fields(payload)
+    for k, v in payload.items():
+        setattr(check, k, v)
+    db.commit()
+    db.refresh(check)
+    return _enrich_daily_out(check)
 
 
 # ========== Stats by type ==========
@@ -814,40 +910,7 @@ def run_daily_jobs_now(user: User = Depends(require_admin)):
     return {"ok": True, "message": "Ежедневные задачи выполнены"}
 
 
-
-# ========== Integrations ==========
-@app.get("/api/integrations/zabbix")
-def zabbix_status(user: User = Depends(require_user)):
-    return zabbix_ping()
-
-
-@app.get("/api/integrations/zabbix/host/{host_name}")
-def zabbix_host(host_name: str, user: User = Depends(require_user)):
-    try:
-        return get_host_status(host_name)
-    except Exception as e:
-        raise HTTPException(400, str(e))
-
-
-@app.get("/api/integrations/authentik")
-def authentik_status():
-    return authentik_discovery()
-
-
-@app.get("/api/auth/oidc/login")
-def oidc_login():
-    url = authentik_login_url()
-    if not url:
-        raise HTTPException(501, "Authentik OIDC не настроен (AUTHENTIK_ISSUER / CLIENT_ID)")
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url)
-
-
 # ========== Static frontend ==========
-static_dir = Path(__file__).parent / "static"
-if static_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
 STATIC_DIR = Path(__file__).parent / "static"
 
 @app.get("/")
