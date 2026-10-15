@@ -364,6 +364,7 @@ class DepartmentUpdate(BaseModel):
     sort_order: Optional[int] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
+    excluded_template_ids: Optional[List[int]] = None
 
 
 class DepartmentOut(BaseModel):
@@ -373,6 +374,7 @@ class DepartmentOut(BaseModel):
     sort_order: int = 0
     notes: Optional[str] = None
     is_active: bool = True
+    excluded_template_ids: List[int] = []
 
     class Config:
         from_attributes = True

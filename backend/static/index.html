@@ -1405,9 +1405,15 @@
               <button onclick="addDepartment()" class="text-xs text-teal-700 hover:underline">+ добавить</button>
             </div>
             <ul class="text-sm space-y-2 max-h-96 overflow-y-auto">
-              ${deps.map(d => `<li class="flex justify-between border-b border-slate-50 py-1.5">
-                <span>${d.name}</span>
-                <span class="text-xs text-slate-400">#${d.id}</span>
+              ${deps.map(d => `<li class="border-b border-slate-50 py-2">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="font-medium">${d.name}</span>
+                  <span class="text-xs text-slate-400">#${d.id}</span>
+                </div>
+                <div class="mt-1 flex items-center justify-between gap-2">
+                  <span class="text-xs text-slate-500">${(d.excluded_template_ids || []).length ? 'Исключено регламентов: ' + d.excluded_template_ids.length : 'Исключения не заданы'}</span>
+                  <button type="button" onclick="openDepartmentSettings(${d.id})" class="text-xs text-teal-700 hover:underline">Настройки ППР</button>
+                </div>
               </li>`).join('') || '<li class="text-slate-400">Пусто</li>'}
             </ul>
           </div>
@@ -1437,6 +1443,57 @@
         </div>
         <p class="text-xs text-slate-500 mt-4">Справочники заполняются из штатной расстановки при первом запуске. Сотрудников добавляйте отдельно в разделе «Сотрудники».</p>`;
     }
+    async function openDepartmentSettings(departmentId) {
+      try {
+        const [departments, templates] = await Promise.all([
+          api('/api/departments?active_only=false'),
+          api('/api/templates')
+        ]);
+        const department = departments.find(function(item) { return Number(item.id) === Number(departmentId); });
+        if (!department) throw new Error('Подразделение не найдено');
+        const excluded = new Set((department.excluded_template_ids || []).map(Number));
+        $('#modal-title').textContent = 'Исключения регламентов подразделения';
+        $('#modal-body').innerHTML = `
+          <form id="department-ppr-settings-form" class="space-y-4">
+            <div>
+              <div class="font-medium text-slate-800">${department.name}</div>
+              <p class="text-sm text-slate-500 mt-1">Отметьте регламенты, по которым не нужно создавать задачи для этого подразделения. Настройка действует только на выбранное подразделение.</p>
+            </div>
+            <div class="max-h-[55vh] overflow-y-auto space-y-2 rounded-lg border p-3">
+              ${templates.length ? templates.map(function(tpl) {
+                return '<label class="flex items-start gap-3 rounded-md px-2 py-2 hover:bg-slate-50 cursor-pointer"><input type="checkbox" class="department-excluded-template mt-1" value="' + tpl.id + '" ' + (excluded.has(Number(tpl.id)) ? 'checked' : '') + '><span><span class="block text-sm font-medium">' + (tpl.code ? tpl.code + ' — ' : '') + tpl.name + '</span><span class="block text-xs text-slate-500">' + (tpl.description || tpl.periodicity || '') + '</span></span></label>';
+              }).join('') : '<p class="text-sm text-slate-500">Активных регламентов нет.</p>'}
+            </div>
+            <div class="flex justify-end gap-2 border-t pt-3">
+              <button type="button" id="department-ppr-cancel" class="px-4 py-2 border rounded-lg text-sm">Отмена</button>
+              <button type="submit" id="department-ppr-save" class="px-4 py-2 bg-teal-700 text-white rounded-lg text-sm font-medium">Сохранить</button>
+            </div>
+          </form>`;
+        openModal();
+        const form = $('#department-ppr-settings-form');
+        $('#department-ppr-cancel').onclick = closeModal;
+        form.onsubmit = async function(event) {
+          event.preventDefault();
+          const save = $('#department-ppr-save');
+          save.disabled = true;
+          save.textContent = 'Сохранение…';
+          const excludedTemplateIds = Array.from(form.querySelectorAll('.department-excluded-template:checked')).map(function(input) { return Number(input.value); });
+          try {
+            await api('/api/departments/' + department.id, { method: 'PATCH', body: JSON.stringify({ excluded_template_ids: excludedTemplateIds }) });
+            closeModal();
+            toast('Исключения регламентов подразделения сохранены', 'success');
+            await loadPage('directories');
+          } catch (e) {
+            toast(e.message || 'Не удалось сохранить исключения', 'error');
+            save.disabled = false;
+            save.textContent = 'Сохранить';
+          }
+        };
+      } catch (e) {
+        toast(e.message || 'Не удалось открыть настройки подразделения', 'error');
+      }
+    }
+
     async function addDepartment() {
       const name = prompt('Название подразделения:');
       if (!name) return;

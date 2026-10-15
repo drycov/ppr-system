@@ -981,7 +981,16 @@ def update_department(dept_id: int, data: schemas.DepartmentUpdate, user: User =
     d = db.query(Department).filter(Department.id == dept_id).first()
     if not d:
         raise HTTPException(404, "Не найдено")
-    for k, v in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    if "excluded_template_ids" in updates and updates["excluded_template_ids"] is not None:
+        ids = sorted(set(updates["excluded_template_ids"]))
+        if ids:
+            found = {row[0] for row in db.query(PPRTemplate.id).filter(PPRTemplate.id.in_(ids)).all()}
+            missing = set(ids) - found
+            if missing:
+                raise HTTPException(422, f"Не найдены регламенты: {sorted(missing)}")
+        updates["excluded_template_ids"] = ids
+    for k, v in updates.items():
         setattr(d, k, v)
     db.commit()
     db.refresh(d)
