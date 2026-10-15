@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from calendar import monthrange
 from sqlalchemy.orm import Session
 from models import Object, PPRTemplate, PPRPlan, User, DutySchedule
+from settings_service import get_setting
 
 
 NETWORK_OBJECT_TYPES = {
@@ -94,7 +95,7 @@ def resolve_assignee_for_template(
     template: PPRTemplate,
     planned: date,
     index: int,
-    prefer_duty: bool = True,
+    prefer_duty: bool | None = None,
     department_id: int | None = None,
 ) -> tuple:
     """
@@ -103,6 +104,8 @@ def resolve_assignee_for_template(
     3) дежурный (для daily)
     4) round-robin среди подходящих
     """
+    if prefer_duty is None:
+        prefer_duty = bool(get_setting(db, "planning.prefer_duty")) and bool(get_setting(db, "duty.enabled"))
     direction = (template.work_direction or "network_engineer").strip()
 
     if direction == "head" or template.responsible_role == "head":
@@ -171,10 +174,10 @@ def generate_plans_for_period(
     year: int,
     month: int,
     object_types: list = None,
-    only_without_plan: bool = True,
-    prefer_duty: bool = True,
+    only_without_plan: bool | None = None,
+    prefer_duty: bool | None = None,
     work_direction: str = None,
-    include_daily_templates: bool = False,
+    include_daily_templates: bool | None = None,
     department_id: int | None = None,
 ) -> dict:
     """
@@ -194,6 +197,13 @@ def generate_plans_for_period(
                 for key, value in result.get("by_direction", {}).items():
                     totals["by_direction"][key] = totals["by_direction"].get(key, 0) + value
             return {**totals, "period": f"{year}-{month:02d}", "department_id": None, "message": "Создано задач: " + str(totals["created"]) + ", пропущено: " + str(totals["skipped"])}
+
+    if only_without_plan is None:
+        only_without_plan = bool(get_setting(db, "planning.only_without_plan"))
+    if prefer_duty is None:
+        prefer_duty = bool(get_setting(db, "planning.prefer_duty")) and bool(get_setting(db, "duty.enabled"))
+    if include_daily_templates is None:
+        include_daily_templates = bool(get_setting(db, "planning.include_daily_templates"))
 
     created = 0
     skipped = 0
