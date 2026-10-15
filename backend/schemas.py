@@ -142,7 +142,7 @@ DAILY_CHECKLIST_TEMPLATE = [
 
 class DailyCheckBase(BaseModel):
     check_date: date
-    engineer: str
+    engineer: Optional[str] = None
     monitoring_dashboard: str = "ok"
     critical_services: str = "ok"
     logs_security: str = "ok"

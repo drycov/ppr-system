@@ -447,14 +447,20 @@ def daily_checklist_template():
 
 
 @app.post("/api/daily-checks", response_model=schemas.DailyCheckOut)
-def create_daily_check(data: schemas.DailyCheckCreate, db: Session = Depends(get_db)):
+def create_daily_check(
+    data: schemas.DailyCheckCreate,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    eng = (data.engineer or "").strip() or (user.full_name or user.username)
     existing = db.query(DailyCheck).filter(
         DailyCheck.check_date == data.check_date,
-        DailyCheck.engineer == data.engineer,
+        DailyCheck.engineer == eng,
     ).first()
     if existing:
-        raise HTTPException(400, "Проверка на эту дату уже существует")
+        raise HTTPException(400, "Проверка на эту дату для вас уже есть")
     payload = _apply_checklist_to_fields(data.model_dump())
+    payload["engineer"] = eng
     check = DailyCheck(**payload)
     db.add(check)
     db.commit()
