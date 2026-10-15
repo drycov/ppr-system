@@ -922,7 +922,6 @@
           cameras_count: parseInt(fd.get('cameras_count') || '0', 10) || 0,
           status: fd.get('status'),
           responsible_default: fd.get('responsible_default') || null,
-          department_id: fd.get('department_id') ? parseInt(fd.get('department_id'), 10) : null,
           notes: fd.get('notes') || null,
         };
         try {
