@@ -658,9 +658,11 @@
     }
 
     async function openEditPlanModal(planId) {
-      const [plan, staff] = await Promise.all([
+      const [plan, staff, objects, departments] = await Promise.all([
         api('/api/plans/' + planId),
         api('/api/staff?active_only=true&can_do_ppr=true').catch(() => api('/api/staff?active_only=true')),
+        api('/api/objects?limit=500'),
+        api('/api/departments?active_only=true'),
       ]);
       const st = plan.status || 'planned';
       $('#modal-title').textContent = 'Редактирование задачи #' + planId;
@@ -669,6 +671,20 @@
           <div>
             <label class="block text-slate-600 mb-1">Название</label>
             <input name="title" value="${(plan.title || '').replace(/"/g, '&quot;')}" class="w-full border rounded-lg px-3 py-2" required>
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Подразделение</label>
+            <select name="department_id" class="w-full border rounded-lg px-3 py-2" required>
+              <option value="">Выберите подразделение</option>
+              ${departments.map(d => `<option value="${d.id}" ${Number(plan.department_id)===Number(d.id)?'selected':''}>${d.name}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Объект</label>
+            <select name="object_id" class="w-full border rounded-lg px-3 py-2">
+              <option value="">Без объекта</option>
+              ${objects.map(o => `<option value="${o.id}" ${Number(plan.object_id)===Number(o.id)?'selected':''}>${o.code} — ${o.address || o.name || ''}</option>`).join('')}
+            </select>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -738,6 +754,8 @@
         const workRaw = (fd.get('work_types_done') || '').trim();
         const body = {
           title: fd.get('title'),
+          department_id: Number(fd.get('department_id')),
+          object_id: fd.get('object_id') ? Number(fd.get('object_id')) : null,
           planned_date: fd.get('planned_date'),
           status: fd.get('status'),
           responsible: fd.get('responsible') || null,
