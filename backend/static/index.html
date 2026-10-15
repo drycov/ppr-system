@@ -443,14 +443,16 @@
     }
 
     // ----- Plans -----
-    let plansFilter = { status: '', mine: false };
+    let plansFilter = { status: '', mine: false, department_id: '' };
 
     async function renderPlans(el) {
       const params = new URLSearchParams();
       if (plansFilter.status) params.set('status', plansFilter.status);
+      if (plansFilter.department_id && !plansFilter.mine) params.set('department_id', plansFilter.department_id);
       params.set('limit', '100');
       const url = plansFilter.mine ? ('/api/plans/my?' + params) : ('/api/plans?' + params);
       const [plans, dist, departments] = await Promise.all([api(url), api('/api/planning/distribution').catch(() => null), api('/api/departments?active_only=true').catch(() => [])]);
+      const departmentNames = new Map(departments.map(d => [d.id, d.name]));
       const now = new Date();
       const y = now.getFullYear();
       const mo = now.getMonth() + 1;
@@ -468,7 +470,7 @@
                   ).join('')}
                 </select>
                 <select id="gen-department" class="border rounded-lg px-2 py-1.5 text-sm">
-                  <option value="">Все подразделения (общий план)</option>
+                  <option value="">Все подразделения</option>
                   ${departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
                 </select>
                 <select id="gen-dir" class="border rounded-lg px-2 py-1.5 text-sm">
@@ -505,8 +507,12 @@
             <option value="done" ${plansFilter.status==='done'?'selected':''}>Исполнено</option>
             <option value="overdue" ${plansFilter.status==='overdue'?'selected':''}>Просрочено</option>
           </select>
+          <select id="filter-department" class="border border-slate-300 rounded-lg px-3 py-2 text-sm">
+            <option value="">Все подразделения</option>
+            ${departments.map(d => `<option value="${d.id}" ${String(plansFilter.department_id)===String(d.id)?'selected':''}>${d.name}</option>`).join('')}
+          </select>
           <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="filter-mine" ${plansFilter.mine?'checked':''}> Только мои</label>
-          <button onclick="plansFilter.status=$('#filter-status').value; plansFilter.mine=$('#filter-mine').checked; loadPage('plans')" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm">Применить</button>
+          <button onclick="plansFilter.status=$('#filter-status').value; plansFilter.mine=$('#filter-mine').checked; plansFilter.department_id=$('#filter-department').value; loadPage('plans')" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm">Применить</button>
           <button onclick="openNewPlanModal()" class="ml-auto px-4 py-2 bg-teal-700 text-white rounded-lg text-sm hover:bg-teal-800">+ Новая задача</button>
         </div>
         <div class="bg-white rounded-xl border border-slate-100 overflow-hidden">
@@ -528,7 +534,8 @@
                     <td class="px-4 py-3 whitespace-nowrap">${formatDate(p.planned_date)}${p.fact_date ? '<br><span class="text-xs text-teal-600">факт: '+formatDate(p.fact_date)+'</span>' : ''}</td>
                     <td class="px-4 py-3">
                       <div class="font-medium">${p.title || '—'}</div>
-                      ${p.object ? `<div class="text-xs text-slate-500">${p.object.code} · ${p.object.address || ''}</div>` : '<div class="text-xs text-slate-400">Общесистемная</div>'}
+                      ${p.object ? `<div class="text-xs text-slate-500">${p.object.code} · ${p.object.address || ''}</div>` : '<div class="text-xs text-slate-400">Без объекта</div>'}
+                      ${p.department_id && departmentNames.get(p.department_id) ? `<div class="text-xs text-indigo-600">${departmentNames.get(p.department_id)}</div>` : ''}
                     </td>
                     <td class="px-4 py-3">${p.responsible || '—'}${p.assigned_by_duty ? ' <span class="text-[10px] text-amber-600">деж.</span>' : ''}</td>
                     <td class="px-4 py-3">${statusBadge(p.status)}</td>
