@@ -1846,55 +1846,85 @@ async function renderStaff(el) {
       const from = y + '-' + String(m+1).padStart(2,'0') + '-01';
       const lastDay = new Date(y, m+1, 0).getDate();
       const to = y + '-' + String(m+1).padStart(2,'0') + '-' + String(lastDay).padStart(2,'0');
-      const [duties, staff, today] = await Promise.all([
+      const [duties, staff, today, departments] = await Promise.all([
         api('/api/duties?from_date=' + from + '&to_date=' + to),
         api('/api/staff?can_duty=true'),
-        api('/api/duties/today')
+        api('/api/duties/today'),
+        api('/api/departments?active_only=false')
       ]);
+      const departmentNames = Object.fromEntries(departments.map(d => [d.id, d.name]));
       const dutyMap = {};
-      duties.forEach(d => { dutyMap[d.duty_date] = d; });
+      duties.forEach(d => {
+        if (!dutyMap[d.duty_date] || d.shift === 'day' || d.shift === 'full') dutyMap[d.duty_date] = d;
+      });
+      const escapeDuty = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
       let calendar = '';
       for (let d = 1; d <= lastDay; d++) {
         const ds = y + '-' + String(m+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
         const duty = dutyMap[ds];
-        const name = duty && duty.user ? (duty.user.full_name || '') : '';
-        const isToday = ds === now.toISOString().slice(0,10);
-        calendar += '<div class="border rounded-lg p-2 text-xs ' + (isToday?'ring-2 ring-teal-600 ':'') + (duty?'bg-teal-50':'') + '">' +
-          '<div class="font-semibold mb-1">' + d + '</div>' +
-          '<div class="text-slate-600 truncate mb-1">' + (name || '—') + '</div>' +
-          '<select data-date="' + ds + '" class="duty-select mt-1 w-full border rounded text-xs py-0.5"><option value="">—</option>' +
-          staff.map(s => '<option value="' + s.id + '"' + (duty && duty.user_id===s.id?' selected':'') + '>' + (s.full_name||s.username) + '</option>').join('') +
-          '</select></div>';
+        const name = duty && duty.user ? (duty.user.full_name || duty.user.username) : '';
+        const department = duty && duty.user && duty.user.department_id ? departmentNames[duty.user.department_id] : '';
+        const isToday = ds === [y, String(m+1).padStart(2,'0'), String(d).padStart(2,'0')].join('-');
+        calendar += '<div class="border rounded-lg p-2 text-xs min-w-0 ' + (isToday?'ring-2 ring-teal-600 ':'') + (duty?'bg-teal-50 border-teal-200':'bg-white') + '">' +
+          '<div class="flex items-center justify-between gap-1 mb-1"><span class="font-semibold">' + d + '</span><span class="text-[10px] text-slate-400">' + (duty ? escapeDuty(({day:'День',night:'Ночь',full:'24 ч.'})[duty.shift] || duty.shift) : '') + '</span></div>' +
+          '<div class="text-slate-700 truncate mb-0.5" title="' + escapeDuty(name) + '">' + (escapeDuty(name) || '<span class="text-slate-400">Не назначен</span>') + '</div>' +
+          '<div class="text-[10px] text-slate-500 truncate mb-1" title="' + escapeDuty(department) + '">' + (escapeDuty(department) || (duty ? 'Все подразделения' : '')) + '</div>' +
+          '<select data-date="' + ds + '" class="duty-select w-full border rounded px-1 py-1 text-xs bg-white"><option value="">Не назначен</option>' +
+          staff.map(s => '<option value="' + s.id + '"' + (duty && duty.user_id===s.id?' selected':'') + '>' + escapeDuty(s.full_name || s.username) + (s.department_id && departmentNames[s.department_id] ? ' · ' + escapeDuty(departmentNames[s.department_id]) : ' · без подразделения') + '</option>').join('') +
+          '</select>' +
+          (duty ? '<button type="button" data-duty-id="' + duty.id + '" class="duty-delete mt-1 w-full text-[10px] text-red-600 hover:bg-red-50 rounded py-1">Снять дежурство</button>' : '') +
+          '</div>';
       }
       el.innerHTML = `
         <div class="mb-4 flex flex-wrap gap-3 items-center">
           <div class="bg-teal-50 border border-teal-200 rounded-lg px-4 py-2 text-sm">
             <span class="text-slate-500">Сегодня дежурит:</span>
-            <strong class="ml-1">${today.length ? today.map(t => t.full_name).join(', ') : 'не назначен'}</strong>
+            <strong class="ml-1">${today.length ? today.map(t => escapeDuty(t.full_name || t.username)).join(', ') : 'не назначен'}</strong>
+          </div>
+          <div class="bg-white border border-slate-200 rounded-lg px-4 py-2 text-sm">
+            <span class="text-slate-500">Назначено в этом месяце:</span>
+            <strong class="ml-1">${duties.length}</strong>
           </div>
           <button id="btn-reassign" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">Переназначить ППР по дежурствам</button>
-          <p class="text-xs text-slate-500 w-full">Исполнитель ППР = дежурный на дату задачи. Если дежурного нет — распределение по кругу среди инженеров.</p>
+          <p class="text-xs text-slate-500 w-full">Единый график для всех подразделений. Дежурный на дату может получать задачи ППР независимо от своего подразделения. Для автоматического назначения используются дневная и круглосуточная смены.</p>
         </div>
-        <div class="grid grid-cols-7 gap-2">${calendar}</div>`;
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">${calendar}</div>`;
       el.querySelectorAll('.duty-select').forEach(sel => {
         sel.onchange = async () => {
-          if (!sel.value) return;
           try {
-            await api('/api/duties', { method: 'POST', body: JSON.stringify({ duty_date: sel.dataset.date, user_id: parseInt(sel.value), shift: 'day' }) });
-          } catch (e) { alert(e.message); }
+            if (!sel.value) {
+              const existing = dutyMap[sel.dataset.date];
+              if (existing) await api('/api/duties/' + existing.id, { method: 'DELETE' });
+            } else {
+              await api('/api/duties', { method: 'POST', body: JSON.stringify({ duty_date: sel.dataset.date, user_id: parseInt(sel.value, 10), shift: 'day' }) });
+            }
+            await renderDuties(el);
+          } catch (e) {
+            toast(e.message || 'Не удалось сохранить дежурство', 'error');
+            await renderDuties(el);
+          }
+        };
+      });
+      el.querySelectorAll('.duty-delete').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/api/duties/' + btn.dataset.dutyId, { method: 'DELETE' });
+            await renderDuties(el);
+          } catch (e) { toast(e.message || 'Не удалось снять дежурство', 'error'); }
         };
       });
       const btn = el.querySelector('#btn-reassign');
       if (btn) btn.onclick = async () => {
-        if (!confirm('Переназначить плановые задачи месяца по графику дежурств?')) return;
+        if (!confirm('Переназначить все плановые задачи выбранного месяца по единому графику дежурств, включая задачи других подразделений?')) return;
         try {
           const r = await api('/api/planning/reassign-by-duty?year=' + y + '&month=' + (m+1), { method: 'POST' });
-          alert(r.message); loadPage('plans');
-        } catch (e) { alert(e.message); }
+          toast(r.message || 'Плановые задачи переназначены', 'success');
+          loadPage('plans');
+        } catch (e) { toast(e.message || 'Не удалось переназначить задачи', 'error'); }
       };
     }
 
-async function importExcelNow() {
+    async function importExcelNow() {
       if (!confirm('Импортировать объекты ИНТ/ВОЛС из Excel (backend/data/ или attachments)?')) return;
       try {
         const r = await api('/api/import/excel', { method: 'POST' });
