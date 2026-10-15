@@ -111,6 +111,26 @@ class PPRPlanOut(PPRPlanBase):
         from_attributes = True
 
 
+class DailyChecklistItem(BaseModel):
+    code: str
+    name: str
+    done: bool = False
+    status: str = "ok"  # ok | issues | skip
+    note: Optional[str] = None
+
+
+# Эталонный чек-лист раздела 2 Положения ОСС
+DAILY_CHECKLIST_TEMPLATE = [
+    {"code": "D1", "field": "monitoring_dashboard", "name": "Дашборд системы мониторинга"},
+    {"code": "D2", "field": "critical_services", "name": "Доступность ключевых сервисов"},
+    {"code": "D3", "field": "logs_security", "name": "Логи и события безопасности"},
+    {"code": "D4", "field": "config_backups", "name": "Резервные копии конфигураций"},
+    {"code": "D5", "field": "channel_utilization", "name": "Загрузка каналов"},
+    {"code": "D6", "field": "ups_status", "name": "Состояние ИБП"},
+    {"code": "D7", "field": "incidents_logged", "name": "Фиксация инцидентов"},
+]
+
+
 class DailyCheckBase(BaseModel):
     check_date: date
     engineer: str
@@ -121,6 +141,7 @@ class DailyCheckBase(BaseModel):
     channel_utilization: str = "ok"
     ups_status: str = "ok"
     incidents_logged: bool = True
+    checklist: List[DailyChecklistItem] = []
     notes: Optional[str] = None
 
     @field_validator("engineer", mode="before")
@@ -133,9 +154,31 @@ class DailyCheckCreate(DailyCheckBase):
     pass
 
 
+class DailyCheckUpdate(BaseModel):
+    """Обновление выполнения чек-листа"""
+    engineer: Optional[str] = None
+    monitoring_dashboard: Optional[str] = None
+    critical_services: Optional[str] = None
+    logs_security: Optional[str] = None
+    config_backups: Optional[str] = None
+    channel_utilization: Optional[str] = None
+    ups_status: Optional[str] = None
+    incidents_logged: Optional[bool] = None
+    checklist: Optional[List[DailyChecklistItem]] = None
+    notes: Optional[str] = None
+
+    @field_validator("engineer", mode="before")
+    @classmethod
+    def _norm_engineer(cls, v):
+        return normalize_fio(v) if v is not None else v
+
+
 class DailyCheckOut(DailyCheckBase):
     id: int
     created_at: Optional[datetime] = None
+    # сколько пунктов отмечено выполненными
+    done_count: Optional[int] = None
+    total_count: Optional[int] = None
 
     class Config:
         from_attributes = True
