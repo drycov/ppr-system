@@ -88,6 +88,8 @@ class PPRTemplate(Base):
     responsible_role = Column(String(50), default="engineer")  # системная роль
     work_direction = Column(String(40), default="network_engineer")  # sysadmin/installer/network_engineer
     is_active = Column(Boolean, default=True)
+    # Empty means shared across all departments; otherwise limited to assigned departments.
+    department_ids = Column(JSON, default=list, nullable=False)
 
 
 
