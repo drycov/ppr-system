@@ -240,18 +240,64 @@ def create_plan(data: schemas.PPRPlanCreate, db: Session = Depends(get_db)):
     return plan
 
 
+@app.get("/api/plans/my")
+def my_plans(
+    status: Optional[str] = None,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Задачи текущего пользователя (по assignee или ФИО)"""
+    from sqlalchemy import or_
+    conds = [PPRPlan.assignee_id == user.id]
+    if user.full_name:
+        conds.append(PPRPlan.responsible.ilike(f"%{user.full_name}%"))
+    q = db.query(PPRPlan).options(joinedload(PPRPlan.object)).filter(or_(*conds))
+    if status:
+        q = q.filter(PPRPlan.status == status)
+    return q.order_by(PPRPlan.planned_date).limit(100).all()
+
+
+@app.get("/api/plans/{plan_id}", response_model=schemas.PPRPlanOut)
+def get_plan(plan_id: int, db: Session = Depends(get_db)):
+    plan = db.query(PPRPlan).options(joinedload(PPRPlan.object)).filter(PPRPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(404, "Задача не найдена")
+    return plan
+
+
 @app.patch("/api/plans/{plan_id}", response_model=schemas.PPRPlanOut)
 def update_plan(plan_id: int, data: schemas.PPRPlanUpdate, db: Session = Depends(get_db)):
     plan = db.query(PPRPlan).filter(PPRPlan.id == plan_id).first()
     if not plan:
         raise HTTPException(404, "Задача не найдена")
-    for k, v in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    # если сменили исполнителя — подтянуть ФИО
+    if "assignee_id" in payload and payload["assignee_id"]:
+        u = db.query(User).filter(User.id == payload["assignee_id"]).first()
+        if u and "responsible" not in payload:
+            payload["responsible"] = u.full_name or u.username
+    for k, v in payload.items():
         setattr(plan, k, v)
-    if data.status == "done" and not plan.fact_date:
+    if payload.get("status") == "done" and not plan.fact_date:
         plan.fact_date = date.today()
+    if payload.get("status") == "planned":
+        # вернули в план — сбросить факт при необходимости не трогаем
+        pass
     db.commit()
     db.refresh(plan)
     return plan
+
+
+@app.delete("/api/plans/{plan_id}")
+def delete_plan(plan_id: int, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    plan = db.query(PPRPlan).filter(PPRPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(404, "Задача не найдена")
+    if plan.status == "done" and user.role not in ("admin", "head"):
+        raise HTTPException(403, "Выполненную задачу может удалить только руководитель")
+    db.delete(plan)
+    db.commit()
+    return {"ok": True, "message": "Задача удалена"}
 
 
 @app.post("/api/plans/{plan_id}/complete")
@@ -750,23 +796,6 @@ def api_reassign_by_duty(
     db: Session = Depends(get_db),
 ):
     return reassign_plans_by_duty(db, year, month)
-
-
-@app.get("/api/plans/my")
-def my_plans(
-    status: Optional[str] = None,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    """Задачи текущего пользователя (по assignee или ФИО)"""
-    from sqlalchemy import or_
-    conds = [PPRPlan.assignee_id == user.id]
-    if user.full_name:
-        conds.append(PPRPlan.responsible.ilike(f"%{user.full_name}%"))
-    q = db.query(PPRPlan).options(joinedload(PPRPlan.object)).filter(or_(*conds))
-    if status:
-        q = q.filter(PPRPlan.status == status)
-    return q.order_by(PPRPlan.planned_date).limit(100).all()
 
 
 
