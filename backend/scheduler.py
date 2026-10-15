@@ -16,6 +16,7 @@ def _run_daily_jobs():
     from database import SessionLocal
     from planning import mark_overdue, generate_plans_for_period
     from notifications import notify_overdue, notify_today_duties
+    from settings_service import get_setting
 
     db = SessionLocal()
     try:
