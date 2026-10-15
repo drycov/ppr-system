@@ -90,11 +90,17 @@ class PPRPlanCreate(PPRPlanBase):
 
 
 class PPRPlanUpdate(BaseModel):
+    object_id: Optional[int] = None
+    template_id: Optional[int] = None
+    assignee_id: Optional[int] = None
+    title: Optional[str] = None
+    planned_date: Optional[date] = None
     fact_date: Optional[date] = None
     status: Optional[str] = None
     work_types_done: Optional[List[str]] = None
     comment: Optional[str] = None
     responsible: Optional[str] = None
+    assigned_by_duty: Optional[bool] = None
 
     @field_validator("responsible", mode="before")
     @classmethod
