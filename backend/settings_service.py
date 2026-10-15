@@ -34,10 +34,10 @@ SETTINGS_CATALOG = [
  {"key":"ui.page_size","category":"Интерфейс","label":"Размер страницы таблиц","description":"Количество записей по умолчанию в списках.","type":"int","default":100,"min":10,"max":500},
  {"key":"integrations.zabbix.enabled","category":"Интеграции","label":"Включить интеграцию Zabbix","description":"Разрешение на использование интеграции Zabbix.","type":"bool","default":False},
  {"key":"integrations.zabbix.url","category":"Интеграции","label":"URL Zabbix","description":"Базовый URL Zabbix API.","type":"str","default":""},
- {"key":"integrations.zabbix.token","category":"Интеграции","label":"Токен Zabbix","description":"Секретный токен хранится в БД; API возвращает только признак наличия.","type":"secret","default":""}
- ,{"key":"integrations.telegram.enabled","category":"Интеграции","label":"Включить Telegram","description":"Разрешить отправку уведомлений ППР в Telegram. Для отправки укажите токен бота и chat ID.","type":"bool","default":true}
- ,{"key":"integrations.telegram.bot_token","category":"Интеграции","label":"Токен Telegram-бота","description":"Токен от @BotFather. Хранится в БД в зашифрованном виде; API его не раскрывает.","type":"secret","default":""}
- ,{"key":"integrations.telegram.chat_id","category":"Интеграции","label":"Telegram Chat ID","description":"ID личного чата, группы или канала, куда отправлять уведомления.","type":"str","default":""}
+ {"key":"integrations.zabbix.token","category":"Интеграции","label":"Токен Zabbix","description":"Секретный токен хранится в БД; API возвращает только признак наличия.","type":"secret","default":""},
+ {"key":"integrations.telegram.enabled","category":"Интеграции","label":"Включить Telegram","description":"Разрешить отправку уведомлений ППР в Telegram. Для отправки укажите токен бота и chat ID.","type":"bool","default":true}
+ {"key":"integrations.telegram.bot_token","category":"Интеграции","label":"Токен Telegram-бота","description":"Токен от @BotFather. Хранится в БД в зашифрованном виде; API его не раскрывает.","type":"secret","default":""}
+ {"key":"integrations.telegram.chat_id","category":"Интеграции","label":"Telegram Chat ID","description":"ID личного чата, группы или канала, куда отправлять уведомления.","type":"str","default":""}
 ]
 CATALOG_BY_KEY = {item["key"]: item for item in SETTINGS_CATALOG}
 
