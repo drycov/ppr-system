@@ -14,3 +14,6 @@ python-dateutil>=2.9.0
 # ФИО: парсинг + пол + склонение (офлайн)
 russiannames>=2.0.0
 pytrovich>=0.2.0
+
+# Fernet encryption for secrets stored in system settings
+cryptography>=42.0.0
