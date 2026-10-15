@@ -116,7 +116,14 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True)
-    full_name = Column(String(150))
+    full_name = Column(String(150))  # нормализованное ФИО целиком (для отображения/отчётов)
+
+    # Разбор ФИО (заполняется автоматически при вводе full_name)
+    surname = Column(String(80), nullable=True)       # Фамилия
+    first_name = Column(String(80), nullable=True)    # Имя
+    patronymic = Column(String(80), nullable=True)    # Отчество
+    gender = Column(String(1), nullable=True)         # 'm' | 'f' | None
+
     role = Column(String(30), default="engineer")  # код из system_roles
     position = Column(String(150), nullable=True)  # отображаемое название должности
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
