@@ -1,5 +1,5 @@
 from pathlib import Path
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.orm import sessionmaker, declarative_base
 import os
 
@@ -28,3 +28,32 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def migrate_user_fio_columns():
+    """
+    Добавляет колонки surname / first_name / patronymic / gender в таблицу users,
+    если их ещё нет (SQLite не умеет ALTER через create_all).
+    """
+    try:
+        insp = inspect(engine)
+        if "users" not in insp.get_table_names():
+            return
+        existing = {c["name"] for c in insp.get_columns("users")}
+        alters = []
+        if "surname" not in existing:
+            alters.append("ALTER TABLE users ADD COLUMN surname VARCHAR(80)")
+        if "first_name" not in existing:
+            alters.append("ALTER TABLE users ADD COLUMN first_name VARCHAR(80)")
+        if "patronymic" not in existing:
+            alters.append("ALTER TABLE users ADD COLUMN patronymic VARCHAR(80)")
+        if "gender" not in existing:
+            alters.append("ALTER TABLE users ADD COLUMN gender VARCHAR(1)")
+        if not alters:
+            return
+        with engine.begin() as conn:
+            for stmt in alters:
+                conn.execute(text(stmt))
+        print(f"✓ Миграция users: добавлены колонки FIO ({len(alters)})")
+    except Exception as e:
+        print(f"⚠ migrate_user_fio_columns: {e}")
