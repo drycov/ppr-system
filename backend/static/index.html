@@ -1523,9 +1523,46 @@ async function importExcelNow() {
         loadPage('dashboard');
       } catch(e) { alert(e.message); }
     }
+    async function downloadPprExcel(query) {
+      if (!TOKEN) {
+        alert('Сессия завершена. Войдите в систему и повторите экспорт.');
+        doLogout();
+        return;
+      }
+      try {
+        // window.open() не позволяет добавить Authorization: Bearer, поэтому скачиваем через fetch.
+        const response = await fetch(API + '/api/export/ppr.xlsx?' + query, {
+          method: 'GET',
+          headers: { 'Authorization': 'Bearer ' + TOKEN }
+        });
+        if (response.status === 401) {
+          doLogout();
+          throw new Error('Сессия завершена. Войдите в систему и повторите экспорт.');
+        }
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(typeof error.detail === 'string' ? error.detail : 'Не удалось сформировать Excel-отчёт');
+        }
+        const blob = await response.blob();
+        const disposition = response.headers.get('content-disposition') || '';
+        const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+        const filename = match ? decodeURIComponent(match[1] || match[2]) : 'ppr-report.xlsx';
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error) {
+        alert(error.message || 'Ошибка скачивания отчёта');
+      }
+    }
+
     function exportExcelNow() {
       const n = new Date();
-      window.open('/api/export/ppr.xlsx?year=' + n.getFullYear() + '&month=' + (n.getMonth()+1), '_blank');
+      downloadPprExcel('year=' + n.getFullYear() + '&month=' + (n.getMonth()+1));
     }
 
     function exportExcelPeriodNow() {
@@ -1539,7 +1576,7 @@ async function importExcelNow() {
         alert('Укажите корректные даты в формате ГГГГ-ММ-ДД; дата начала должна быть не позже даты окончания.');
         return;
       }
-      window.open('/api/export/ppr.xlsx?from_date=' + encodeURIComponent(fromDate) + '&to_date=' + encodeURIComponent(toDate), '_blank');
+      downloadPprExcel('from_date=' + encodeURIComponent(fromDate) + '&to_date=' + encodeURIComponent(toDate));
     }
 
     async function fictitiousCompletePlan(id) {
