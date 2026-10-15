@@ -11,7 +11,7 @@ from pathlib import Path
 from io import BytesIO
 
 from database import get_db, engine, Base
-from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule
+from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule, Department, Position, SystemRole
 import schemas
 import seed
 from auth import (
@@ -46,6 +46,7 @@ def on_startup():
         if db.query(Object).count() == 0:
             print("Первый запуск — заполняем БД...")
             seed.seed_templates(db)
+            seed.seed_directories(db)
             seed.seed_users(db)
             seed.import_integration_objects(db)
             seed.import_voles_objects(db)
@@ -440,12 +441,21 @@ def list_staff(
 def create_staff(data: schemas.StaffCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
     if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(400, "Логин уже занят")
+    pos_name = data.position
+    if data.position_id:
+        pos = db.query(Position).filter(Position.id == data.position_id).first()
+        if pos:
+            pos_name = pos.name
+            if data.can_do_ppr is True and pos.can_do_ppr_default:
+                pass  # keep explicit
     u = User(
         username=data.username,
         full_name=data.full_name,
         hashed_password=data.password,
         role=data.role,
-        position=data.position,
+        position=pos_name,
+        department_id=data.department_id,
+        position_id=data.position_id,
         phone=data.phone,
         email=data.email,
         can_do_ppr=data.can_do_ppr,
@@ -599,6 +609,86 @@ def my_plans(
     if status:
         q = q.filter(PPRPlan.status == status)
     return q.order_by(PPRPlan.planned_date).limit(100).all()
+
+
+
+# ========== Directories ==========
+@app.get("/api/departments", response_model=List[schemas.DepartmentOut])
+def list_departments(active_only: bool = True, db: Session = Depends(get_db)):
+    q = db.query(Department)
+    if active_only:
+        q = q.filter(Department.is_active == True)
+    return q.order_by(Department.sort_order, Department.name).all()
+
+
+@app.post("/api/departments", response_model=schemas.DepartmentOut)
+def create_department(data: schemas.DepartmentCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if db.query(Department).filter(Department.name == data.name).first():
+        raise HTTPException(400, "Подразделение уже существует")
+    d = Department(**data.model_dump())
+    db.add(d)
+    db.commit()
+    db.refresh(d)
+    return d
+
+
+@app.patch("/api/departments/{dept_id}", response_model=schemas.DepartmentOut)
+def update_department(dept_id: int, data: schemas.DepartmentUpdate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    d = db.query(Department).filter(Department.id == dept_id).first()
+    if not d:
+        raise HTTPException(404, "Не найдено")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(d, k, v)
+    db.commit()
+    db.refresh(d)
+    return d
+
+
+@app.get("/api/positions", response_model=List[schemas.PositionOut])
+def list_positions(department_id: Optional[int] = None, active_only: bool = True, db: Session = Depends(get_db)):
+    q = db.query(Position).options(joinedload(Position.department))
+    if active_only:
+        q = q.filter(Position.is_active == True)
+    if department_id:
+        q = q.filter(Position.department_id == department_id)
+    return q.order_by(Position.name).all()
+
+
+@app.post("/api/positions", response_model=schemas.PositionOut)
+def create_position(data: schemas.PositionCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    pos = Position(**data.model_dump())
+    db.add(pos)
+    db.commit()
+    db.refresh(pos)
+    return pos
+
+
+@app.patch("/api/positions/{pos_id}", response_model=schemas.PositionOut)
+def update_position(pos_id: int, data: schemas.PositionUpdate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    pos = db.query(Position).filter(Position.id == pos_id).first()
+    if not pos:
+        raise HTTPException(404, "Не найдено")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(pos, k, v)
+    db.commit()
+    db.refresh(pos)
+    return pos
+
+
+@app.get("/api/roles", response_model=List[schemas.SystemRoleOut])
+def list_roles(db: Session = Depends(get_db)):
+    return db.query(SystemRole).filter(SystemRole.is_active == True).order_by(SystemRole.id).all()
+
+
+@app.post("/api/roles", response_model=schemas.SystemRoleOut)
+def create_role(data: schemas.SystemRoleCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if db.query(SystemRole).filter(SystemRole.code == data.code).first():
+        raise HTTPException(400, "Код роли уже есть")
+    r = SystemRole(**data.model_dump())
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return r
 
 
 # ========== Static frontend ==========

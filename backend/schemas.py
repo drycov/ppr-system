@@ -139,7 +139,9 @@ class StaffCreate(BaseModel):
     full_name: str
     password: str = "eng"
     role: str = "engineer"
-    position: str = "Инженер ОСС"
+    position: Optional[str] = None
+    department_id: Optional[int] = None
+    position_id: Optional[int] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     can_do_ppr: bool = True
@@ -151,6 +153,8 @@ class StaffUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
     position: Optional[str] = None
+    department_id: Optional[int] = None
+    position_id: Optional[int] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     is_active: Optional[bool] = None
@@ -166,6 +170,8 @@ class StaffOut(BaseModel):
     full_name: Optional[str] = None
     role: str
     position: Optional[str] = None
+    department_id: Optional[int] = None
+    position_id: Optional[int] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     is_active: bool = True
@@ -202,3 +208,82 @@ class DutyBulkCreate(BaseModel):
     dates: List[date]
     shift: str = "day"
     notes: Optional[str] = None
+
+
+# ---- Directories ----
+class DepartmentCreate(BaseModel):
+    name: str
+    code: Optional[str] = None
+    sort_order: int = 0
+    notes: Optional[str] = None
+    is_active: bool = True
+
+
+class DepartmentUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    sort_order: Optional[int] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class DepartmentOut(BaseModel):
+    id: int
+    name: str
+    code: Optional[str] = None
+    sort_order: int = 0
+    notes: Optional[str] = None
+    is_active: bool = True
+
+    class Config:
+        from_attributes = True
+
+
+class PositionCreate(BaseModel):
+    name: str
+    department_id: Optional[int] = None
+    can_do_ppr_default: bool = False
+    can_duty_default: bool = False
+    notes: Optional[str] = None
+    is_active: bool = True
+
+
+class PositionUpdate(BaseModel):
+    name: Optional[str] = None
+    department_id: Optional[int] = None
+    can_do_ppr_default: Optional[bool] = None
+    can_duty_default: Optional[bool] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class PositionOut(BaseModel):
+    id: int
+    name: str
+    department_id: Optional[int] = None
+    can_do_ppr_default: bool = False
+    can_duty_default: bool = False
+    notes: Optional[str] = None
+    is_active: bool = True
+    department: Optional[DepartmentOut] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SystemRoleOut(BaseModel):
+    id: int
+    code: str
+    name: str
+    description: Optional[str] = None
+    is_active: bool = True
+
+    class Config:
+        from_attributes = True
+
+
+class SystemRoleCreate(BaseModel):
+    code: str
+    name: str
+    description: Optional[str] = None
+    is_active: bool = True

@@ -76,6 +76,9 @@
         <a href="#" data-page="templates" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
           <i data-lucide="list-checks" class="w-4 h-4"></i> Шаблоны работ
         </a>
+        <a href="#" data-page="directories" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="library" class="w-4 h-4"></i> Справочники
+        </a>
         <a href="#" data-page="staff" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
           <i data-lucide="users" class="w-4 h-4"></i> Сотрудники
         </a>
@@ -231,6 +234,7 @@
         else if (page === 'daily') await renderDaily(content);
         else if (page === 'regulations') await renderRegulations(content);
         else if (page === 'templates') await renderTemplates(content);
+        else if (page === 'directories') await renderDirectories(content);
         else if (page === 'staff') await renderStaff(content);
         else if (page === 'duties') await renderDuties(content);
       } catch (e) {
@@ -657,7 +661,78 @@
 
     
     
-    async function renderStaff(el) {
+    
+    async function renderDirectories(el) {
+      const [deps, positions, roles] = await Promise.all([
+        api('/api/departments?active_only=false'),
+        api('/api/positions?active_only=false'),
+        api('/api/roles')
+      ]);
+      el.innerHTML = `
+        <div class="grid lg:grid-cols-3 gap-6">
+          <div class="bg-white rounded-xl border p-5">
+            <div class="flex justify-between mb-3">
+              <h3 class="font-semibold">Подразделения</h3>
+              <button onclick="addDepartment()" class="text-xs text-teal-700 hover:underline">+ добавить</button>
+            </div>
+            <ul class="text-sm space-y-2 max-h-96 overflow-y-auto">
+              ${deps.map(d => `<li class="flex justify-between border-b border-slate-50 py-1.5">
+                <span>${d.name}</span>
+                <span class="text-xs text-slate-400">#${d.id}</span>
+              </li>`).join('') || '<li class="text-slate-400">Пусто</li>'}
+            </ul>
+          </div>
+          <div class="bg-white rounded-xl border p-5 lg:col-span-1">
+            <div class="flex justify-between mb-3">
+              <h3 class="font-semibold">Должности</h3>
+              <button onclick="addPosition()" class="text-xs text-teal-700 hover:underline">+ добавить</button>
+            </div>
+            <ul class="text-sm space-y-2 max-h-96 overflow-y-auto">
+              ${positions.map(p => `<li class="border-b border-slate-50 py-1.5">
+                <div class="font-medium">${p.name}</div>
+                <div class="text-xs text-slate-500">${p.department ? p.department.name : '—'}
+                  ${p.can_do_ppr_default ? ' · ППР' : ''}${p.can_duty_default ? ' · деж.' : ''}
+                </div>
+              </li>`).join('') || '<li class="text-slate-400">Пусто</li>'}
+            </ul>
+          </div>
+          <div class="bg-white rounded-xl border p-5">
+            <h3 class="font-semibold mb-3">Системные роли</h3>
+            <ul class="text-sm space-y-2">
+              ${roles.map(r => `<li class="border-b border-slate-50 py-1.5">
+                <div><span class="font-mono text-xs bg-slate-100 px-1.5 rounded">${r.code}</span> ${r.name}</div>
+                <div class="text-xs text-slate-500">${r.description || ''}</div>
+              </li>`).join('')}
+            </ul>
+          </div>
+        </div>
+        <p class="text-xs text-slate-500 mt-4">Справочники заполняются из штатной расстановки при первом запуске. Сотрудников добавляйте отдельно в разделе «Сотрудники».</p>`;
+    }
+    async function addDepartment() {
+      const name = prompt('Название подразделения:');
+      if (!name) return;
+      try {
+        await api('/api/departments', { method: 'POST', body: JSON.stringify({ name }) });
+        loadPage('directories');
+      } catch (e) { alert(e.message); }
+    }
+    async function addPosition() {
+      const name = prompt('Название должности:');
+      if (!name) return;
+      const deps = await api('/api/departments');
+      const deptName = prompt('Подразделение (название или пусто):\n' + deps.map(d => d.name).join('\n'));
+      let department_id = null;
+      if (deptName) {
+        const d = deps.find(x => x.name === deptName.trim());
+        if (d) department_id = d.id;
+      }
+      try {
+        await api('/api/positions', { method: 'POST', body: JSON.stringify({ name, department_id, can_do_ppr_default: true, can_duty_default: true }) });
+        loadPage('directories');
+      } catch (e) { alert(e.message); }
+    }
+
+async function renderStaff(el) {
       const staff = await api('/api/staff?active_only=false');
       el.innerHTML = `
         <div class="flex justify-between mb-4">
@@ -687,19 +762,29 @@
         <p class="text-xs text-slate-500 mt-2">Всего: ${staff.length}. Для добавления используйте API POST /api/staff или кнопку ниже.</p>
         <button onclick="openStaffModal()" class="mt-2 px-3 py-1.5 border rounded-lg text-sm">Добавить сотрудника</button>`;
     }
-    function openStaffModal() {
+    async function openStaffModal() {
+      const [deps, positions, roles] = await Promise.all([
+        api('/api/departments'), api('/api/positions'), api('/api/roles')
+      ]);
       $('#modal-title').textContent = 'Новый сотрудник';
       $('#modal-body').innerHTML = `
         <form id="staff-form" class="space-y-3 text-sm">
           <div><label class="block mb-1">Логин</label><input name="username" class="w-full border rounded-lg px-3 py-2" required></div>
           <div><label class="block mb-1">Пароль</label><input name="password" type="password" value="eng" class="w-full border rounded-lg px-3 py-2"></div>
           <div><label class="block mb-1">ФИО</label><input name="full_name" class="w-full border rounded-lg px-3 py-2" required></div>
-          <div><label class="block mb-1">Должность</label><input name="position" value="Инженер ОСС" class="w-full border rounded-lg px-3 py-2"></div>
-          <div><label class="block mb-1">Роль</label>
+          <div><label class="block mb-1">Подразделение</label>
+            <select name="department_id" id="staff-dept" class="w-full border rounded-lg px-3 py-2">
+              <option value="">—</option>
+              ${deps.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
+            </select></div>
+          <div><label class="block mb-1">Должность</label>
+            <select name="position_id" id="staff-pos" class="w-full border rounded-lg px-3 py-2">
+              <option value="">—</option>
+              ${positions.map(p => `<option value="${p.id}" data-dept="${p.department_id||''}">${p.name}</option>`).join('')}
+            </select></div>
+          <div><label class="block mb-1">Системная роль</label>
             <select name="role" class="w-full border rounded-lg px-3 py-2">
-              <option value="engineer">engineer</option>
-              <option value="head">head</option>
-              <option value="admin">admin</option>
+              ${roles.map(r => `<option value="${r.code}">${r.name} (${r.code})</option>`).join('')}
             </select></div>
           <div class="flex gap-4">
             <label class="flex items-center gap-2"><input type="checkbox" name="can_do_ppr" checked> Участвует в ППР</label>
@@ -711,14 +796,30 @@
           </div>
         </form>`;
       openModal();
+      const deptSel = $('#staff-dept');
+      const posSel = $('#staff-pos');
+      if (deptSel) deptSel.onchange = () => {
+        const dep = deptSel.value;
+        Array.from(posSel.options).forEach((o, i) => {
+          if (i === 0) return;
+          o.hidden = dep && o.dataset.dept && o.dataset.dept !== dep;
+        });
+      };
       $('#staff-form').onsubmit = async (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
+        const posId = fd.get('position_id') ? parseInt(fd.get('position_id')) : null;
+        const posOpt = posId ? positions.find(p => p.id === posId) : null;
         try {
           await api('/api/staff', { method: 'POST', body: JSON.stringify({
             username: fd.get('username'), password: fd.get('password') || 'eng',
-            full_name: fd.get('full_name'), position: fd.get('position'), role: fd.get('role'),
-            can_do_ppr: fd.get('can_do_ppr') === 'on', can_duty: fd.get('can_duty') === 'on'
+            full_name: fd.get('full_name'),
+            role: fd.get('role'),
+            department_id: fd.get('department_id') ? parseInt(fd.get('department_id')) : null,
+            position_id: posId,
+            position: posOpt ? posOpt.name : null,
+            can_do_ppr: fd.get('can_do_ppr') === 'on',
+            can_duty: fd.get('can_duty') === 'on'
           })});
           closeModal(); loadPage('staff');
         } catch (err) { alert(err.message); }

@@ -2,7 +2,7 @@
 from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine, Base
-from models import Object, PPRTemplate, PPRPlan, User, DailyCheck
+from models import Object, PPRTemplate, PPRPlan, User, DailyCheck, Department, Position, SystemRole
 import openpyxl
 from pathlib import Path
 
@@ -201,6 +201,75 @@ def seed_templates(db: Session):
     print(f"✓ Шаблоны ППР загружены: {len(templates)}")
 
 
+
+def seed_directories(db: Session):
+    """Справочники: подразделения, должности, системные роли (без сотрудников)."""
+    roles = [
+        {"code": "admin", "name": "Администратор", "description": "Полный доступ к системе"},
+        {"code": "head", "name": "Руководитель", "description": "Просмотр, планы, отчёты, дежурства"},
+        {"code": "engineer", "name": "Инженер / исполнитель", "description": "Свои задачи ППР, ежедневный контроль"},
+        {"code": "viewer", "name": "Наблюдатель", "description": "Только просмотр"},
+    ]
+    for r in roles:
+        if not db.query(SystemRole).filter(SystemRole.code == r["code"]).first():
+            db.add(SystemRole(**r))
+
+    # Подразделения и должности из штатной расстановки
+    structure = [
+        ("Администрация филиала", [
+            "Директор филиала", "Главный инженер", "Бухгалтер", "Главный бухгалтер филиала",
+            "Специалист по кадрам", "Кладовщик", "Водитель", "Инженер по ОТ и ТБ",
+        ], False, False),
+        ("Центр мониторинга", [
+            "Руководитель центра мониторинга", "Специалист по мониторингу",
+        ], False, False),
+        ("Отдел доступов и разрешений", [
+            "Старший менеджер доступа", "Менеджер доступа",
+        ], False, False),
+        ("Отдел сетей связи и группа IT", [
+            "Начальник отдела сетей связи", "Ведущий сетевой инженер", "Сетевой инженер",
+            "Системный администратор",
+        ], True, True),
+        ("Отдел технической эксплуатации", [
+            "Начальник отдела технической эксплуатации", "Инженер отдела технической эксплуатации",
+        ], False, False),
+        ("Производственный отдел", [
+            "Начальник производственного отдела", "Бригадир", "Старший энергетик", "Монтажник",
+            "Водитель-оператор автогидроподъемника", "Сварщик ВОЛС",
+        ], True, True),
+        ("ГПХ", ["Уборщица"], False, False),
+    ]
+
+    # Должности, для которых ППР/дежурства по умолчанию
+    ppr_positions = {
+        "Начальник отдела сетей связи", "Ведущий сетевой инженер", "Сетевой инженер",
+        "Системный администратор", "Бригадир", "Монтажник", "Сварщик ВОЛС",
+        "Начальник производственного отдела",
+    }
+
+    for i, (dept_name, positions, _, _) in enumerate(structure):
+        dept = db.query(Department).filter(Department.name == dept_name).first()
+        if not dept:
+            dept = Department(name=dept_name, sort_order=i * 10, is_active=True)
+            db.add(dept)
+            db.flush()
+        for pname in positions:
+            pname = pname.strip()
+            exists = db.query(Position).filter(
+                Position.name == pname, Position.department_id == dept.id
+            ).first()
+            if not exists:
+                db.add(Position(
+                    name=pname,
+                    department_id=dept.id,
+                    can_do_ppr_default=pname in ppr_positions,
+                    can_duty_default=pname in ppr_positions,
+                    is_active=True,
+                ))
+    db.commit()
+    print(f"✓ Подразделения: {db.query(Department).count()}, должности: {db.query(Position).count()}, роли: {db.query(SystemRole).count()}")
+
+
 def seed_users(db: Session):
     """Только учётная запись администратора. Сотрудников добавляют вручную."""
     if not db.query(User).filter(User.username == "admin").first():
@@ -355,6 +424,7 @@ def run_seed():
     db = SessionLocal()
     try:
         seed_templates(db)
+        seed_directories(db)
         seed_users(db)
         import_integration_objects(db)
         import_voles_objects(db)

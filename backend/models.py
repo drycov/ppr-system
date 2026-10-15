@@ -67,6 +67,49 @@ class PPRTemplate(Base):
     is_active = Column(Boolean, default=True)
 
 
+
+class Department(Base):
+    """Справочник подразделений"""
+    __tablename__ = "departments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), unique=True, nullable=False)
+    code = Column(String(50), nullable=True)
+    is_active = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    notes = Column(Text, nullable=True)
+
+    positions = relationship("Position", back_populates="department")
+    users = relationship("User", back_populates="department")
+
+
+class Position(Base):
+    """Справочник должностей"""
+    __tablename__ = "positions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    is_active = Column(Boolean, default=True)
+    can_do_ppr_default = Column(Boolean, default=False)  # по умолчанию участвует в ППР
+    can_duty_default = Column(Boolean, default=False)
+    notes = Column(Text, nullable=True)
+
+    department = relationship("Department", back_populates="positions")
+    users = relationship("User", back_populates="position_ref")
+
+
+class SystemRole(Base):
+    """Справочник системных ролей (права в приложении)"""
+    __tablename__ = "system_roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(50), unique=True, nullable=False)  # admin, head, engineer, viewer
+    name = Column(String(150), nullable=False)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+
+
 class User(Base):
     """Сотрудник ОСС / исполнитель ППР"""
     __tablename__ = "users"
@@ -74,17 +117,21 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True)
     full_name = Column(String(150))
-    role = Column(String(30), default="engineer")  # engineer, head, admin
-    position = Column(String(150), default="Инженер ОСС")  # должность
+    role = Column(String(30), default="engineer")  # код из system_roles
+    position = Column(String(150), nullable=True)  # отображаемое название должности
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    position_id = Column(Integer, ForeignKey("positions.id"), nullable=True)
     phone = Column(String(50), nullable=True)
     email = Column(String(120), nullable=True)
     is_active = Column(Boolean, default=True)
-    can_do_ppr = Column(Boolean, default=True)  # участвует в ППР
-    can_duty = Column(Boolean, default=True)    # участвует в дежурствах
+    can_do_ppr = Column(Boolean, default=True)
+    can_duty = Column(Boolean, default=True)
     hashed_password = Column(String(255))
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    department = relationship("Department", back_populates="users")
+    position_ref = relationship("Position", back_populates="users")
     duties = relationship("DutySchedule", back_populates="user")
     plans = relationship("PPRPlan", back_populates="assignee_user")
 
