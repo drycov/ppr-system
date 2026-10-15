@@ -1141,7 +1141,8 @@
 
     // ----- Templates -----
     async function renderTemplates(el) {
-      const templates = await api('/api/templates');
+      const [templates, departments] = await Promise.all([api('/api/templates'), api('/api/departments?active_only=true')]);
+      const departmentNames = new Map(departments.map(d => [d.id, d.name]));
       const dirMeta = {
         sysadmin: { title: 'Системные администраторы', cls: 'border-indigo-200 bg-indigo-50/50', badge: 'bg-indigo-100 text-indigo-800' },
         installer: { title: 'Монтажники', cls: 'border-amber-200 bg-amber-50/50', badge: 'bg-amber-100 text-amber-900' },
@@ -1180,17 +1181,35 @@
                       '<span class="text-xs text-slate-600">' + (periodRu[tpl.periodicity] || tpl.periodicity) + '</span>' +
                     '</div>' +
                     '<h4 class="font-medium text-sm mb-1 leading-snug">' + tpl.name + '</h4>' +
+                    '<p class="text-xs text-slate-600 mb-2">' + ((tpl.department_ids || []).length ? 'Подразделения: ' + (tpl.department_ids || []).map(function(id) { return departmentNames.get(id) || ('#' + id); }).join(', ') : 'Общий регламент') + '</p>' +
                     '<p class="text-xs text-slate-500 mb-2">' + (tpl.description || '') + '</p>' +
                     '<div class="flex flex-wrap gap-1">' +
                       (tpl.work_items || []).slice(0,6).map(function(w) {
                         return '<span class="text-[10px] bg-white/70 border border-black/5 px-1.5 py-0.5 rounded">' + w + '</span>';
                       }).join('') +
-                    '</div></div>';
+                    '</div><button type="button" class="tpl-departments mt-3 text-xs px-3 py-1.5 border rounded-lg" data-id="' + tpl.id + '">Назначить подразделения</button></div>';
                 }).join('') +
               '</div></div>';
           }).join('')}
         </div>
       `;
+      el.querySelectorAll('.tpl-departments').forEach(function(btn) {
+        btn.onclick = async function() {
+          const tpl = templates.find(function(t) { return t.id === Number(btn.dataset.id); });
+          if (!tpl) return;
+          const departmentOptions = departments.map(function(d) { return d.id + ' — ' + d.name; }).join('\\n');
+          const value = prompt('ID подразделений через запятую. Пусто — общий регламент для всех.\\n' + departmentOptions, (tpl.department_ids || []).join(','));
+          if (value === null) return;
+          const ids = value.trim() ? value.split(',').map(function(v) { return Number(v.trim()); }) : [];
+          if (ids.some(function(id) { return !Number.isInteger(id) || !departments.some(function(d) { return d.id === id; }); })) {
+            alert('Укажите существующие ID подразделений через запятую.'); return;
+          }
+          try {
+            await api('/api/templates/' + tpl.id + '/departments', { method: 'PATCH', body: JSON.stringify({ department_ids: ids }) });
+            loadPage('templates');
+          } catch (e) { alert(e.message); }
+        };
+      });
       const b = document.getElementById('tpl-reseed');
       if (b) b.onclick = async function() {
         try {
