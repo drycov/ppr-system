@@ -636,17 +636,79 @@ def download_act(plan_id: int, db: Session = Depends(get_db)):
 # ========== Excel export ==========
 @app.get("/api/export/ppr.xlsx")
 def export_excel(
-    year: int = Query(...),
-    month: int = Query(..., ge=1, le=12),
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
+    object_type: Optional[str] = Query(None),
+    work_direction: Optional[str] = Query(None),
     db: Session = Depends(get_db),
+    user: User = Depends(require_user),
 ):
-    data = export_ppr_report(db, year, month)
-    filename = f"Otchet_PPR_APK_{year}_{month:02d}.xlsx"
+    """Excel-отчёт за месяц (year/month) либо произвольный период (from_date/to_date)."""
+    if from_date is None and to_date is None:
+        if year is None or month is None:
+            raise HTTPException(400, "Укажите year и month либо from_date и to_date")
+        from calendar import monthrange
+        from_date = date(year, month, 1)
+        to_date = date(year, month, monthrange(year, month)[1])
+    elif from_date is None or to_date is None:
+        raise HTTPException(400, "Для отчёта за период укажите обе даты: from_date и to_date")
+    if from_date > to_date:
+        raise HTTPException(400, "from_date не может быть позже to_date")
+    if (to_date - from_date).days > 3660:
+        raise HTTPException(400, "Максимальный период отчёта — 10 лет")
+    from report_service import export_ppr_period_report
+    data = export_ppr_period_report(
+        db, from_date, to_date, object_type=object_type, work_direction=work_direction
+    )
+    filename = f"Otchet_PPR_{from_date.isoformat()}_{to_date.isoformat()}.xlsx"
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.post("/api/plans/{plan_id}/admin-fictitious-completion")
+def admin_fictitious_completion(
+    plan_id: int,
+    reason: str = Query(..., min_length=5, max_length=500),
+    fact_date: date = Query(default_factory=date.today),
+    work_types: List[str] = Query(default=[]),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Административная фиктивная отметка; явно маркируется и попадает в аудит/отчёт."""
+    if user.role != "admin":
+        raise HTTPException(403, "Фиктивные отметки доступны только администратору системы")
+    plan = db.query(PPRPlan).filter(PPRPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(404, "Задача ППР не найдена")
+    reason = reason.strip()
+    if len(reason) < 5:
+        raise HTTPException(422, "Укажите причину фиктивной отметки (не менее 5 символов)")
+    marker = (
+        f"[ФИКТИВНАЯ ОТМЕТКА — НЕ ПОДТВЕРЖДЕНО ФАКТИЧЕСКИ] "
+        f"Администратор: {user.username}; дата внесения: {datetime.utcnow().isoformat(timespec='seconds')}; "
+        f"дата выполнения: {fact_date.isoformat()}; причина: {reason}"
+    )
+    plan.status = "done"
+    plan.fact_date = fact_date
+    if work_types:
+        plan.work_types_done = work_types
+    plan.comment = f"{plan.comment or ''}\n{marker}".strip()
+    db.commit()
+    db.refresh(plan)
+    return {
+        "ok": True,
+        "plan_id": plan.id,
+        "status": plan.status,
+        "fact_date": plan.fact_date,
+        "fictitious": True,
+        "audit_marker": marker,
+        "message": "Отметка внесена как фиктивная; она явно обозначается в отчётах",
+    }
 
 
 
