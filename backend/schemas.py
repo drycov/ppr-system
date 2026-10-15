@@ -13,7 +13,6 @@ class ObjectBase(BaseModel):
     cameras_count: int = 0
     status: str = "active"
     responsible_default: Optional[str] = None
-    department_id: Optional[int] = None
     notes: Optional[str] = None
 
     @field_validator("responsible_default", mode="before")
@@ -78,6 +77,7 @@ class PPRTemplateOut(PPRTemplateBase):
 
 class PPRPlanBase(BaseModel):
     object_id: Optional[int] = None
+    department_id: Optional[int] = None
     template_id: Optional[int] = None
     assignee_id: Optional[int] = None
     title: Optional[str] = None
@@ -100,6 +100,7 @@ class PPRPlanCreate(PPRPlanBase):
 
 class PPRPlanUpdate(BaseModel):
     object_id: Optional[int] = None
+    department_id: Optional[int] = None
     template_id: Optional[int] = None
     assignee_id: Optional[int] = None
     title: Optional[str] = None
