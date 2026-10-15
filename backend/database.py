@@ -59,5 +59,22 @@ def migrate_user_fio_columns():
         print(f"⚠ migrate_user_fio_columns: {e}")
 
 
+
+def migrate_daily_checklist_column():
+    """Добавляет колонку checklist в daily_checks, если её нет."""
+    try:
+        insp = inspect(engine)
+        if "daily_checks" not in insp.get_table_names():
+            return
+        existing = {c["name"] for c in insp.get_columns("daily_checks")}
+        if "checklist" in existing:
+            return
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE daily_checks ADD COLUMN checklist JSON"))
+        print("✓ Миграция daily_checks: добавлена колонка checklist")
+    except Exception as e:
+        print(f"⚠ migrate_daily_checklist_column: {e}")
+
 # Авто-миграция при импорте модуля (после create_all в startup тоже безопасно)
 migrate_user_fio_columns()
+migrate_daily_checklist_column()
