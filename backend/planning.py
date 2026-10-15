@@ -197,7 +197,7 @@ def generate_plans_for_period(
     if work_direction:
         templates = [t for t in templates if (t.work_direction or "") == work_direction]
     if department_id is not None:
-        templates = [t for t in templates if not (t.department_ids or []) or department_id in (t.department_ids or [])]
+        templates = [t for t in templates if (not (t.department_ids or []) or department_id in (t.department_ids or [])) and department_id not in (t.excluded_department_ids or [])]
     if not include_daily_templates:
         templates = [t for t in templates if t.periodicity != "daily"]
 
