@@ -138,7 +138,12 @@ def update_object(object_id: int, data: schemas.ObjectUpdate, db: Session = Depe
     obj = db.query(Object).filter(Object.id == object_id).first()
     if not obj:
         raise HTTPException(404, "Объект не найден")
-    for k, v in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    if "code" in payload and payload["code"] != obj.code:
+        exists = db.query(Object).filter(Object.code == payload["code"], Object.id != object_id).first()
+        if exists:
+            raise HTTPException(400, "Объект с таким кодом уже существует")
+    for k, v in payload.items():
         setattr(obj, k, v)
     db.commit()
     db.refresh(obj)
