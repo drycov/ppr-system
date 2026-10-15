@@ -1309,10 +1309,7 @@
           const form = $('#tpl-departments-form');
           const shared = $('#tpl-department-shared');
           const options = Array.from(form.querySelectorAll('.tpl-department-option'));
-          const syncShared = () => {
-            const isShared = options.length > 0 && options.every(function(option) { return option.checked; }) && options.length === selected.size;
-            shared.checked = (tpl.department_ids || []).length === 0;
-          };
+          shared.checked = (tpl.department_ids || []).length === 0;
           shared.onchange = function() {
             if (shared.checked) options.forEach(function(option) { option.checked = false; });
           };
@@ -1328,6 +1325,12 @@
             save.disabled = true;
             save.textContent = 'Сохранение…';
             const ids = shared.checked ? [] : options.filter(function(option) { return option.checked; }).map(function(option) { return Number(option.value); });
+            if (!shared.checked && ids.length === 0) {
+              toast('Выберите подразделение или включите общий регламент', 'warning');
+              save.disabled = false;
+              save.textContent = 'Сохранить';
+              return;
+            }
             try {
               await api('/api/templates/' + tpl.id + '/departments', { method: 'PATCH', body: JSON.stringify({ department_ids: ids }) });
               closeModal();
