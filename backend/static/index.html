@@ -293,6 +293,7 @@
             <button onclick="document.querySelector('[data-page=daily]').click()" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900">Сдать ежедневный контроль</button>
             <button onclick="generatePlansNow()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">Сгенерировать план (месяц)</button>
             <button onclick="exportExcelNow()" class="px-4 py-2 bg-emerald-700 text-white rounded-lg text-sm hover:bg-emerald-800">Экспорт Excel</button>
+            <button onclick="importExcelNow()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm hover:bg-blue-800">Импорт Excel объектов</button>
             <button onclick="document.querySelector('[data-page=regulations]').click()" class="px-4 py-2 border border-slate-300 rounded-lg text-sm hover:bg-slate-50">Регламент</button>
             <button onclick="doLogout()" class="px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50">Выйти</button>
           </div>
@@ -328,13 +329,14 @@
     }
 
     // ----- Plans -----
-    let plansFilter = { status: '' };
+    let plansFilter = { status: '', mine: false };
 
     async function renderPlans(el) {
       const params = new URLSearchParams();
       if (plansFilter.status) params.set('status', plansFilter.status);
-      params.set('limit', '50');
-      const plans = await api('/api/plans?' + params);
+      params.set('limit', '80');
+      const url = plansFilter.mine ? ('/api/plans/my?' + params) : ('/api/plans?' + params);
+      const plans = await api(url);
 
       el.innerHTML = `
         <div class="flex flex-wrap gap-3 mb-4 items-center">
@@ -344,7 +346,8 @@
             <option value="done" ${plansFilter.status==='done'?'selected':''}>Исполнено</option>
             <option value="overdue" ${plansFilter.status==='overdue'?'selected':''}>Просрочено</option>
           </select>
-          <button onclick="plansFilter.status=$('#filter-status').value; loadPage('plans')" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm">Применить</button>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="filter-mine" ${plansFilter.mine?'checked':''}> Только мои</label>
+          <button onclick="plansFilter.status=$('#filter-status').value; plansFilter.mine=$('#filter-mine').checked; loadPage('plans')" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm">Применить</button>
           <button onclick="openNewPlanModal()" class="ml-auto px-4 py-2 bg-teal-700 text-white rounded-lg text-sm hover:bg-teal-800">+ Новая задача</button>
         </div>
         <div class="bg-white rounded-xl border border-slate-100 overflow-hidden">
@@ -440,6 +443,14 @@
     // ----- Objects -----
     let objectsFilter = { type: '', search: '' };
 
+    async function editObject(id, oldAddr) {
+      const addr = prompt('Новый адрес (перенос):', oldAddr || '');
+      if (addr === null || addr === oldAddr) return;
+      try {
+        await api('/api/objects/' + id + '/relocate?new_address=' + encodeURIComponent(addr) + '&reason=' + encodeURIComponent('Перенос из UI'), { method: 'POST' });
+        loadPage('objects');
+      } catch (e) { alert(e.message); }
+    }
     async function renderObjects(el) {
       const params = new URLSearchParams();
       if (objectsFilter.type) params.set('object_type', objectsFilter.type);
@@ -468,6 +479,7 @@
                 <th class="px-4 py-3 font-medium">Камер</th>
                 <th class="px-4 py-3 font-medium">Ответственный</th>
                 <th class="px-4 py-3 font-medium">Статус</th>
+                <th class="px-4 py-3 font-medium"></th>
               </tr>
             </thead>
             <tbody>
@@ -880,7 +892,15 @@ async function renderStaff(el) {
       };
     }
 
-async function generatePlansNow() {
+async function importExcelNow() {
+      if (!confirm('Импортировать объекты ИНТ/ВОЛС из Excel (backend/data/ или attachments)?')) return;
+      try {
+        const r = await api('/api/import/excel', { method: 'POST' });
+        alert(r.message || JSON.stringify(r));
+        loadPage('objects');
+      } catch (e) { alert(e.message); }
+    }
+    async function generatePlansNow() {
       const n = new Date();
       if (!confirm('Создать задачи ППР на ' + (n.getMonth()+1) + '.' + n.getFullYear() + '?')) return;
       try {

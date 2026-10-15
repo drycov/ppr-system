@@ -11,16 +11,18 @@ from pathlib import Path
 from io import BytesIO
 
 from database import get_db, engine, Base
-from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule, Department, Position, SystemRole
+from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule, Department, Position, SystemRole, RelocationLog
 import schemas
 import seed
 from auth import (
+    get_password_hash, is_manager,
     authenticate_user, create_access_token, require_user, require_admin,
     get_current_user, Token, UserOut, ACCESS_TOKEN_EXPIRE_HOURS
 )
 from planning import generate_plans_for_period, mark_overdue, reassign_plans_by_duty
 from pdf_service import generate_ppr_act
 from excel_export import export_ppr_report
+from import_excel import import_from_excel
 
 app = FastAPI(
     title="Система управления ППР — ОСС / АПК",
@@ -361,7 +363,7 @@ def api_generate_plans(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
     object_type: Optional[str] = None,
-    user: User = Depends(require_user),
+    user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     types = [object_type] if object_type else None
@@ -451,7 +453,7 @@ def create_staff(data: schemas.StaffCreate, user: User = Depends(require_user), 
     u = User(
         username=data.username,
         full_name=data.full_name,
-        hashed_password=data.password,
+        hashed_password=get_password_hash(data.password),
         role=data.role,
         position=pos_name,
         department_id=data.department_id,
@@ -476,7 +478,7 @@ def update_staff(staff_id: int, data: schemas.StaffUpdate, user: User = Depends(
         raise HTTPException(404, "Сотрудник не найден")
     payload = data.model_dump(exclude_unset=True)
     if "password" in payload and payload["password"]:
-        u.hashed_password = payload.pop("password")
+        u.hashed_password = get_password_hash(payload.pop("password"))
     else:
         payload.pop("password", None)
     for k, v in payload.items():
@@ -603,9 +605,11 @@ def my_plans(
     db: Session = Depends(get_db),
 ):
     """Задачи текущего пользователя (по assignee или ФИО)"""
-    q = db.query(PPRPlan).options(joinedload(PPRPlan.object)).filter(
-        (PPRPlan.assignee_id == user.id) | (PPRPlan.responsible.ilike(f"%{user.full_name}%") if user.full_name else False)
-    )
+    from sqlalchemy import or_
+    conds = [PPRPlan.assignee_id == user.id]
+    if user.full_name:
+        conds.append(PPRPlan.responsible.ilike(f"%{user.full_name}%"))
+    q = db.query(PPRPlan).options(joinedload(PPRPlan.object)).filter(or_(*conds))
     if status:
         q = q.filter(PPRPlan.status == status)
     return q.order_by(PPRPlan.planned_date).limit(100).all()
@@ -689,6 +693,62 @@ def create_role(data: schemas.SystemRoleCreate, user: User = Depends(require_use
     db.commit()
     db.refresh(r)
     return r
+
+
+
+# ========== Import Excel ==========
+@app.post("/api/import/excel")
+def api_import_excel(
+    path: Optional[str] = None,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return import_from_excel(db, path)
+
+
+# ========== Object relocate / delete ==========
+@app.post("/api/objects/{object_id}/relocate")
+def relocate_object(
+    object_id: int,
+    new_address: str = Query(...),
+    reason: Optional[str] = None,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    obj = db.query(Object).filter(Object.id == object_id).first()
+    if not obj:
+        raise HTTPException(404, "Объект не найден")
+    old = obj.address
+    obj.address = new_address
+    obj.status = "active"
+    db.add(RelocationLog(
+        object_id=obj.id,
+        old_address=old,
+        new_address=new_address,
+        reason=reason or "Перенос",
+        date=date.today(),
+    ))
+    db.commit()
+    return {"ok": True, "old": old, "new": new_address}
+
+
+@app.get("/api/objects/{object_id}/relocations")
+def object_relocations(object_id: int, db: Session = Depends(get_db)):
+    rows = db.query(RelocationLog).filter(RelocationLog.object_id == object_id).order_by(RelocationLog.date.desc()).all()
+    return [
+        {"id": r.id, "old_address": r.old_address, "new_address": r.new_address, "reason": r.reason, "date": r.date.isoformat() if r.date else None}
+        for r in rows
+    ]
+
+
+@app.delete("/api/objects/{object_id}")
+def deactivate_object(object_id: int, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    obj = db.query(Object).filter(Object.id == object_id).first()
+    if not obj:
+        raise HTTPException(404, "Объект не найден")
+    obj.status = "decommissioned"
+    db.commit()
+    return {"ok": True}
 
 
 # ========== Static frontend ==========

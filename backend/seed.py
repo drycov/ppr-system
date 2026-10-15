@@ -2,6 +2,7 @@
 from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine, Base
+from auth import get_password_hash
 from models import Object, PPRTemplate, PPRPlan, User, DailyCheck, Department, Position, SystemRole
 import openpyxl
 from pathlib import Path
@@ -278,7 +279,7 @@ def seed_users(db: Session):
             full_name="Администратор",
             role="admin",
             position="Начальник ОСС",
-            hashed_password="admin",
+            hashed_password=get_password_hash("admin"),
             can_do_ppr=True,
             can_duty=True,
             is_active=True,

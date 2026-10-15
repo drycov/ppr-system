@@ -1,8 +1,8 @@
-"""JWT-авторизация"""
+"""JWT-авторизация с bcrypt-хешированием паролей"""
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
@@ -25,11 +25,6 @@ class Token(BaseModel):
     role: str
 
 
-class TokenData(BaseModel):
-    username: Optional[str] = None
-    role: Optional[str] = None
-
-
 class UserOut(BaseModel):
     id: int
     username: str
@@ -41,9 +36,10 @@ class UserOut(BaseModel):
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    # Для демо: простой сравнение (в seed пароли plaintext)
-    if hashed == plain:
-        return True
+    if not hashed:
+        return False
+    if not hashed.startswith("$2"):
+        return plain == hashed
     try:
         return pwd_context.verify(plain, hashed)
     except Exception:
@@ -65,8 +61,11 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
     user = db.query(User).filter(User.username == username).first()
     if not user or not user.is_active:
         return None
-    if not verify_password(password, user.hashed_password):
+    if not verify_password(password, user.hashed_password or ""):
         return None
+    if user.hashed_password and not user.hashed_password.startswith("$2"):
+        user.hashed_password = get_password_hash(password)
+        db.commit()
     return user
 
 
@@ -83,8 +82,7 @@ async def get_current_user(
             return None
     except JWTError:
         return None
-    user = db.query(User).filter(User.username == username).first()
-    return user
+    return db.query(User).filter(User.username == username).first()
 
 
 async def require_user(user: Optional[User] = Depends(get_current_user)) -> User:
@@ -99,5 +97,9 @@ async def require_user(user: Optional[User] = Depends(get_current_user)) -> User
 
 async def require_admin(user: User = Depends(require_user)) -> User:
     if user.role not in ("admin", "head"):
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
+        raise HTTPException(status_code=403, detail="Недостаточно прав (нужна роль admin или head)")
     return user
+
+
+def is_manager(user: User) -> bool:
+    return user.role in ("admin", "head")
