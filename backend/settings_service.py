@@ -1,6 +1,8 @@
 """Централизованные настройки приложения ППР, хранящиеся в БД."""
 from copy import deepcopy
 from datetime import datetime
+import os
+from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy.orm import Session
 from models import SystemSetting, SettingsAudit
 
@@ -61,11 +63,39 @@ def _validate(spec, value):
   return value
  raise ValueError("Неизвестный тип настройки")
 
+def _fernet():
+ key = os.environ.get("PPR_SETTINGS_SECRET_KEY", "").strip()
+ if not key:
+  raise ValueError("Для хранения секретов задайте PPR_SETTINGS_SECRET_KEY (ключ Fernet)")
+ try:
+  return Fernet(key.encode("ascii"))
+ except Exception as exc:
+  raise ValueError("PPR_SETTINGS_SECRET_KEY должен быть корректным ключом Fernet") from exc
+
+def _encrypt_secret(value: str) -> str:
+ if not value:
+  return ""
+ return "enc:v1:" + _fernet().encrypt(value.encode("utf-8")).decode("ascii")
+
+def _decrypt_secret(value: str) -> str:
+ if not value:
+  return ""
+ if not isinstance(value, str) or not value.startswith("enc:v1:"):
+  raise RuntimeError("Обнаружен незашифрованный секрет в БД; задайте PPR_SETTINGS_SECRET_KEY и заново сохраните секрет через Web UI")
+ try:
+  return _fernet().decrypt(value[7:].encode("ascii")).decode("utf-8")
+ except (InvalidToken, UnicodeError) as exc:
+  raise RuntimeError("Не удалось расшифровать секрет настроек; проверьте PPR_SETTINGS_SECRET_KEY") from exc
+
 def get_setting(db: Session, key: str):
  spec = CATALOG_BY_KEY.get(key)
  if not spec: return None
  row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
- return row.value if row is not None else deepcopy(spec["default"])
+ if row is None:
+  return deepcopy(spec["default"])
+ if spec["type"] == "secret":
+  return _decrypt_secret(row.value)
+ return row.value
 
 def get_settings_snapshot(db: Session, include_secrets: bool = False):
  rows = {r.key:r for r in db.query(SystemSetting).all()}
@@ -74,7 +104,7 @@ def get_settings_snapshot(db: Session, include_secrets: bool = False):
   row = rows.get(spec["key"])
   value = row.value if row else deepcopy(spec["default"])
   item = dict(spec, value=value, is_overridden=row is not None, updated_at=row.updated_at.isoformat() if row and row.updated_at else None)
-  if spec["type"] == "secret" and not include_secrets:
+  if spec["type"] == "secret":
    item["configured"] = bool(value)
    item["value"] = ""
   result.append(item)
@@ -91,12 +121,13 @@ def save_settings(db: Session, values: dict, actor: str):
   value = _validate(spec, raw)
   if spec["type"] == "secret" and value == "": continue
   row = rows.get(key)
+  stored_value = _encrypt_secret(value) if spec["type"] == "secret" else value
   old_value = row.value if row else deepcopy(spec["default"])
-  if old_value == value: continue
+  if old_value == stored_value: continue
   if row is None:
-   row = SystemSetting(key=key, value=value)
+   row = SystemSetting(key=key, value=stored_value)
    db.add(row)
-  else: row.value = value
+  else: row.value = stored_value
   row.updated_at = datetime.utcnow()
   changed[key] = {"old":"***" if spec["type"] == "secret" else old_value, "new":"***" if spec["type"] == "secret" else value}
  if changed:
