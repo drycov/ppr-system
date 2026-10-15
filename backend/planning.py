@@ -170,6 +170,19 @@ def generate_plans_for_period(
     - по шаблонам (общесистемные network + привязка к объектам camera/voles)
     - исполнитель по work_direction / specialty
     """
+    if department_id is None:
+        from models import Department
+        departments = db.query(Department).filter(Department.is_active == True).order_by(Department.id).all()
+        if departments:
+            totals = {"created": 0, "skipped": 0, "by_duty": 0, "by_direction": {}, "objects_considered": 0}
+            for department in departments:
+                result = generate_plans_for_period(db, year, month, object_types=object_types, only_without_plan=only_without_plan, prefer_duty=prefer_duty, work_direction=work_direction, include_daily_templates=include_daily_templates, department_id=department.id)
+                for key in ("created", "skipped", "by_duty", "objects_considered"):
+                    totals[key] += result.get(key, 0)
+                for key, value in result.get("by_direction", {}).items():
+                    totals["by_direction"][key] = totals["by_direction"].get(key, 0) + value
+            return {**totals, "period": f"{year}-{month:02d}", "department_id": None, "message": "Создано задач: " + str(totals["created"]) + ", пропущено: " + str(totals["skipped"])}
+
     created = 0
     skipped = 0
     by_duty = 0
@@ -217,6 +230,7 @@ def generate_plans_for_period(
                     .filter(
                         PPRPlan.template_id == tpl.id,
                         PPRPlan.object_id.is_(None),
+                        PPRPlan.department_id == department_id,
                         PPRPlan.planned_date >= month_start,
                         PPRPlan.planned_date <= month_end,
                         PPRPlan.status != "cancelled",
@@ -235,6 +249,7 @@ def generate_plans_for_period(
 
             plan = PPRPlan(
                 object_id=None,
+                department_id=department_id,
                 template_id=tpl.id,
                 assignee_id=user.id if user else None,
                 title=f"{tpl.name} — {month:02d}.{year}",
@@ -252,8 +267,6 @@ def generate_plans_for_period(
     # --- 2) Объектные шаблоны (камеры, ОВН, ВОЛС) ---
     object_templates = [t for t in templates if t not in system_templates]
     q = db.query(Object).filter(Object.status == "active")
-    if department_id is not None:
-        q = q.filter(Object.department_id == department_id)
     if object_types:
         q = q.filter(Object.object_type.in_(object_types))
     objects = q.order_by(Object.id).all()
@@ -279,6 +292,7 @@ def generate_plans_for_period(
                         db.query(PPRPlan)
                         .filter(
                             PPRPlan.object_id == obj.id,
+                            PPRPlan.department_id == department_id,
                             PPRPlan.template_id == tpl.id,
                             PPRPlan.planned_date >= month_start,
                             PPRPlan.planned_date <= month_end,
@@ -301,6 +315,7 @@ def generate_plans_for_period(
                 title = f"ППР {obj.code}: {tpl.name}"
                 plan = PPRPlan(
                     object_id=obj.id,
+                    department_id=department_id,
                     template_id=tpl.id,
                     assignee_id=user.id if user else None,
                     title=title,
