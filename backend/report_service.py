@@ -40,12 +40,10 @@ def export_ppr_period_report(
     query = db.query(PPRPlan).options(
         joinedload(PPRPlan.object), joinedload(PPRPlan.template), joinedload(PPRPlan.assignee_user)
     ).filter(PPRPlan.planned_date >= from_date, PPRPlan.planned_date <= to_date)
-    if object_type or department_id is not None:
-        query = query.join(PPRPlan.object)
     if object_type:
-        query = query.filter(Object.object_type == object_type)
+        query = query.join(PPRPlan.object).filter(Object.object_type == object_type)
     if department_id is not None:
-        query = query.filter(Object.department_id == department_id)
+        query = query.filter(PPRPlan.department_id == department_id)
     if work_direction:
         query = query.join(PPRPlan.template).filter(PPRTemplate.work_direction == work_direction)
     plans = query.order_by(PPRPlan.planned_date, PPRPlan.id).all()
