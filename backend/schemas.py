@@ -13,6 +13,7 @@ class ObjectBase(BaseModel):
     cameras_count: int = 0
     status: str = "active"
     responsible_default: Optional[str] = None
+    department_id: Optional[int] = None
     notes: Optional[str] = None
 
     @field_validator("responsible_default", mode="before")
@@ -33,6 +34,7 @@ class ObjectUpdate(BaseModel):
     cameras_count: Optional[int] = None
     status: Optional[str] = None
     responsible_default: Optional[str] = None
+    department_id: Optional[int] = None
     notes: Optional[str] = None
 
     @field_validator("responsible_default", mode="before")
@@ -60,6 +62,11 @@ class PPRTemplateBase(BaseModel):
     responsible_role: str = "engineer"
     work_direction: str = "network_engineer"
     is_active: bool = True
+    department_ids: List[int] = []
+
+
+class PPRTemplateDepartmentsUpdate(BaseModel):
+    department_ids: List[int] = []
 
 
 class PPRTemplateOut(PPRTemplateBase):

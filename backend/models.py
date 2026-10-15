@@ -56,6 +56,8 @@ class Object(Base):
     cameras_count = Column(Integer, default=0)
     status = Column(String(30), default="active")  # active, relocated, decommissioned
     responsible_default = Column(String(150))
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
+    department = relationship("Department", back_populates="objects")
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -86,6 +88,8 @@ class PPRTemplate(Base):
     responsible_role = Column(String(50), default="engineer")  # системная роль
     work_direction = Column(String(40), default="network_engineer")  # sysadmin/installer/network_engineer
     is_active = Column(Boolean, default=True)
+    # Empty means shared across all departments; otherwise limited to assigned departments.
+    department_ids = Column(JSON, default=list, nullable=False)
 
 
 
@@ -102,6 +106,7 @@ class Department(Base):
 
     positions = relationship("Position", back_populates="department")
     users = relationship("User", back_populates="department")
+    objects = relationship("Object", back_populates="department")
 
 
 class Position(Base):

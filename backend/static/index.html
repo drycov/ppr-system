@@ -450,10 +450,7 @@
       if (plansFilter.status) params.set('status', plansFilter.status);
       params.set('limit', '100');
       const url = plansFilter.mine ? ('/api/plans/my?' + params) : ('/api/plans?' + params);
-      const [plans, dist] = await Promise.all([
-        api(url),
-        api('/api/planning/distribution').catch(() => null),
-      ]);
+      const [plans, dist, departments] = await Promise.all([api(url), api('/api/planning/distribution').catch(() => null), api('/api/departments?active_only=true').catch(() => [])]);
       const now = new Date();
       const y = now.getFullYear();
       const mo = now.getMonth() + 1;
@@ -469,6 +466,10 @@
                   ${[1,2,3,4,5,6,7,8,9,10,11,12].map(mm =>
                     `<option value="${mm}" ${mm===mo?'selected':''}>${String(mm).padStart(2,'0')}</option>`
                   ).join('')}
+                </select>
+                <select id="gen-department" class="border rounded-lg px-2 py-1.5 text-sm">
+                  <option value="">Все подразделения (общий план)</option>
+                  ${departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
                 </select>
                 <select id="gen-dir" class="border rounded-lg px-2 py-1.5 text-sm">
                   <option value="">Все направления</option>
@@ -550,11 +551,13 @@
         const year = +document.getElementById('gen-year').value;
         const month = +document.getElementById('gen-month').value;
         const dir = document.getElementById('gen-dir').value;
+        const departmentId = document.getElementById('gen-department').value;
         const resEl = document.getElementById('gen-result');
         resEl.textContent = 'Создание…';
         try {
           let q = '/api/planning/generate-quick?year=' + year + '&month=' + month;
           if (dir) q += '&work_direction=' + encodeURIComponent(dir);
+          if (departmentId) q += '&department_id=' + encodeURIComponent(departmentId);
           const r = await api(q, { method: 'POST' });
           resEl.innerHTML = '<span class="text-teal-700">' + (r.message || ('Создано: ' + r.created)) + '</span>';
           if (r.by_direction) {
@@ -749,7 +752,8 @@
       if (objectsFilter.type) params.set('object_type', objectsFilter.type);
       if (objectsFilter.search) params.set('search', objectsFilter.search);
       params.set('limit', '200');
-      const objects = await api('/api/objects?' + params);
+      const [objects, departments] = await Promise.all([api('/api/objects?' + params), api('/api/departments?active_only=true').catch(() => [])]);
+      const departmentNames = Object.fromEntries(departments.map(d => [d.id, d.name]));
 
       el.innerHTML = `
         <div class="flex flex-wrap gap-3 mb-4 items-center">
@@ -786,6 +790,7 @@
                 <th class="px-4 py-3 font-medium">Код</th>
                 <th class="px-4 py-3 font-medium">Адрес / Название</th>
                 <th class="px-4 py-3 font-medium">Тип</th>
+                <th class="px-4 py-3 font-medium">Подразделение</th>
                 <th class="px-4 py-3 font-medium">Камер</th>
                 <th class="px-4 py-3 font-medium">Ответственный</th>
                 <th class="px-4 py-3 font-medium">Статус</th>
@@ -793,12 +798,13 @@
               </tr>
             </thead>
             <tbody>
-              ${objects.length === 0 ? '<tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">Нет объектов — нажмите «Добавить объект»</td></tr>' :
+              ${objects.length === 0 ? '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Нет объектов — нажмите «Добавить объект»</td></tr>' :
                 objects.map(o => `
                 <tr class="table-row border-t border-slate-50">
                   <td class="px-4 py-3 font-mono text-xs font-medium">${o.code}</td>
                   <td class="px-4 py-3 max-w-xs truncate" title="${(o.address || '').replace(/"/g,'&quot;')}">${o.address || o.name || '—'}</td>
                   <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${typeLabel(o.object_type)}</span></td>
+                  <td class="px-4 py-3 text-xs">${departmentNames[o.department_id] || 'Не назначено'}</td>
                   <td class="px-4 py-3">${o.cameras_count || '—'}</td>
                   <td class="px-4 py-3 text-xs">${o.responsible_default || '—'}</td>
                   <td class="px-4 py-3"><span class="text-xs ${o.status==='active'?'text-teal-700':'text-slate-400'}">${o.status}</span></td>
@@ -821,6 +827,7 @@
         obj = await api('/api/objects/' + objectId);
       }
       const isEdit = !!obj;
+      const departments = await api('/api/departments?active_only=true').catch(() => []);
       const typeOpts = [
         ['camera_integration', 'ИНТ (интеграция камер)'],
         ['ovn', 'ОВН (уличные)'],
@@ -862,6 +869,13 @@
           <div>
             <label class="block text-slate-600 mb-1">Адрес</label>
             <input name="address" value="${obj ? (obj.address||'').replace(/"/g,'&quot;') : ''}" class="w-full border rounded-lg px-3 py-2" placeholder="г. Усть-Каменогорск, ...">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Подразделение</label>
+            <select name="department_id" class="w-full border rounded-lg px-3 py-2">
+              <option value="">Не назначено</option>
+              ${departments.map(d => `<option value="${d.id}" ${obj && Number(obj.department_id)===Number(d.id)?'selected':''}>${d.name}</option>`).join('')}
+            </select>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -919,6 +933,7 @@
           cameras_count: parseInt(fd.get('cameras_count') || '0', 10) || 0,
           status: fd.get('status'),
           responsible_default: fd.get('responsible_default') || null,
+          department_id: fd.get('department_id') ? parseInt(fd.get('department_id'), 10) : null,
           notes: fd.get('notes') || null,
         };
         try {
@@ -1514,9 +1529,17 @@ async function importExcelNow() {
     }
     async function generatePlansNow() {
       const n = new Date();
-      if (!confirm('Создать задачи ППР на ' + (n.getMonth()+1) + '.' + n.getFullYear() + '?')) return;
+      const departments = await api('/api/departments?active_only=true').catch(() => []);
+      const options = departments.map(d => d.id + ' — ' + d.name).join('\n');
+      const choice = prompt('Подразделение для формирования ППР по всем его объектам. Введите ID; пусто — общий план.\n' + options, '');
+      if (choice === null) return;
+      const departmentId = choice.trim();
+      if (departmentId && !departments.some(d => String(d.id) === departmentId)) { alert('Подразделение с таким ID не найдено.'); return; }
+      if (!confirm('Создать задачи ППР на ' + (n.getMonth()+1) + '.' + n.getFullYear() + (departmentId ? ' для подразделения ' + departments.find(d => String(d.id) === departmentId).name : ' для всех подразделений') + '?')) return;
       try {
-        const r = await api('/api/planning/generate?year=' + n.getFullYear() + '&month=' + (n.getMonth()+1), { method: 'POST' });
+        let url = '/api/planning/generate?year=' + n.getFullYear() + '&month=' + (n.getMonth()+1);
+        if (departmentId) url += '&department_id=' + encodeURIComponent(departmentId);
+        const r = await api(url, { method: 'POST' });
         alert(r.message || 'Готово');
         loadPage('dashboard');
       } catch(e) { alert(e.message); }
@@ -1558,12 +1581,20 @@ async function importExcelNow() {
       }
     }
 
-    function exportExcelNow() {
+    async function exportExcelNow() {
       const n = new Date();
-      downloadPprExcel('year=' + n.getFullYear() + '&month=' + (n.getMonth()+1));
+      const departments = await api('/api/departments?active_only=true').catch(() => []);
+      const options = departments.map(d => d.id + ' — ' + d.name).join('\\n');
+      const choice = prompt('Отчёт ППР: введите ID подразделения или оставьте пустым для всех подразделений.\\n' + options, '');
+      if (choice === null) return;
+      const departmentId = choice.trim();
+      if (departmentId && !departments.some(d => String(d.id) === departmentId)) { alert('Подразделение с таким ID не найдено.'); return; }
+      let query = 'year=' + n.getFullYear() + '&month=' + (n.getMonth()+1);
+      if (departmentId) query += '&department_id=' + encodeURIComponent(departmentId);
+      downloadPprExcel(query);
     }
 
-    function exportExcelPeriodNow() {
+    async function exportExcelPeriodNow() {
       const today = new Date();
       const defaultFrom = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2, '0') + '-01';
       const fromDate = prompt('Дата начала периода (ГГГГ-ММ-ДД):', defaultFrom);
@@ -1574,7 +1605,15 @@ async function importExcelNow() {
         alert('Укажите корректные даты в формате ГГГГ-ММ-ДД; дата начала должна быть не позже даты окончания.');
         return;
       }
-      downloadPprExcel('from_date=' + encodeURIComponent(fromDate) + '&to_date=' + encodeURIComponent(toDate));
+      const departments = await api('/api/departments?active_only=true').catch(() => []);
+      const options = departments.map(d => d.id + ' — ' + d.name).join('\n');
+      const choice = prompt('Отчёт ППР: введите ID подразделения или оставьте пустым для всех подразделений.\n' + options, '');
+      if (choice === null) return;
+      const departmentId = choice.trim();
+      if (departmentId && !departments.some(d => String(d.id) === departmentId)) { alert('Подразделение с таким ID не найдено.'); return; }
+      let query = 'from_date=' + encodeURIComponent(fromDate) + '&to_date=' + encodeURIComponent(toDate);
+      if (departmentId) query += '&department_id=' + encodeURIComponent(departmentId);
+      downloadPprExcel(query);
     }
 
     async function fictitiousCompletePlan(id) {
