@@ -641,19 +641,23 @@
       const params = new URLSearchParams();
       if (objectsFilter.type) params.set('object_type', objectsFilter.type);
       if (objectsFilter.search) params.set('search', objectsFilter.search);
-      params.set('limit', '100');
+      params.set('limit', '200');
       const objects = await api('/api/objects?' + params);
 
       el.innerHTML = `
-        <div class="flex flex-wrap gap-3 mb-4">
+        <div class="flex flex-wrap gap-3 mb-4 items-center">
           <input id="obj-search" value="${objectsFilter.search}" placeholder="Поиск по коду / адресу..." class="border border-slate-300 rounded-lg px-3 py-2 text-sm w-64">
           <select id="obj-type" class="border border-slate-300 rounded-lg px-3 py-2 text-sm">
             <option value="">Все типы</option>
             <option value="camera_integration" ${objectsFilter.type==='camera_integration'?'selected':''}>ИНТ (камеры)</option>
+            <option value="ovn" ${objectsFilter.type==='ovn'?'selected':''}>ОВН</option>
             <option value="voles" ${objectsFilter.type==='voles'?'selected':''}>ВОЛС</option>
+            <option value="sip" ${objectsFilter.type==='sip'?'selected':''}>СИП</option>
             <option value="network" ${objectsFilter.type==='network'?'selected':''}>Сеть ОСС</option>
+            <option value="other" ${objectsFilter.type==='other'?'selected':''}>Прочее</option>
           </select>
           <button onclick="objectsFilter.search=$('#obj-search').value; objectsFilter.type=$('#obj-type').value; loadPage('objects')" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm">Найти</button>
+          <button onclick="openObjectModal()" class="ml-auto px-4 py-2 bg-teal-700 text-white rounded-lg text-sm hover:bg-teal-800">+ Добавить объект</button>
         </div>
         <div class="bg-white rounded-xl border border-slate-100 overflow-hidden">
           <table class="w-full text-sm">
@@ -669,14 +673,19 @@
               </tr>
             </thead>
             <tbody>
-              ${objects.map(o => `
+              ${objects.length === 0 ? '<tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">Нет объектов — нажмите «Добавить объект»</td></tr>' :
+                objects.map(o => `
                 <tr class="table-row border-t border-slate-50">
                   <td class="px-4 py-3 font-mono text-xs font-medium">${o.code}</td>
-                  <td class="px-4 py-3 max-w-xs truncate" title="${o.address || ''}">${o.address || o.name || '—'}</td>
+                  <td class="px-4 py-3 max-w-xs truncate" title="${(o.address || '').replace(/"/g,'&quot;')}">${o.address || o.name || '—'}</td>
                   <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${typeLabel(o.object_type)}</span></td>
                   <td class="px-4 py-3">${o.cameras_count || '—'}</td>
                   <td class="px-4 py-3 text-xs">${o.responsible_default || '—'}</td>
                   <td class="px-4 py-3"><span class="text-xs ${o.status==='active'?'text-teal-700':'text-slate-400'}">${o.status}</span></td>
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    <button onclick="openObjectModal(${o.id})" class="text-slate-700 hover:underline text-xs">Изменить</button>
+                    <button onclick="editObject(${o.id}, ${(JSON.stringify(o.address||'')).replace(/'/g,"\\'")})" class="text-amber-700 hover:underline text-xs ml-2" title="Перенос адреса">Перенос</button>
+                  </td>
                 </tr>
               `).join('')}
             </tbody>
@@ -685,6 +694,118 @@
         <div class="mt-2 text-xs text-slate-500">Показано ${objects.length} объектов</div>
       `;
     }
+
+    async function openObjectModal(objectId) {
+      let obj = null;
+      if (objectId) {
+        obj = await api('/api/objects/' + objectId);
+      }
+      const isEdit = !!obj;
+      const typeOpts = [
+        ['camera_integration', 'ИНТ (интеграция камер)'],
+        ['ovn', 'ОВН (уличные)'],
+        ['voles', 'ВОЛС'],
+        ['sip', 'СИП'],
+        ['network', 'Сеть ОСС'],
+        ['other', 'Прочее'],
+      ];
+      const st = (obj && obj.object_type) || 'camera_integration';
+      const status = (obj && obj.status) || 'active';
+      $('#modal-title').textContent = isEdit ? ('Объект ' + obj.code) : 'Новый объект';
+      $('#modal-body').innerHTML = `
+        <form id="object-form" class="space-y-3 text-sm">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-600 mb-1">Код *</label>
+              <input name="code" value="${obj ? (obj.code||'').replace(/"/g,'&quot;') : ''}" class="w-full border rounded-lg px-3 py-2 font-mono" required placeholder="ИНТ-01">
+            </div>
+            <div>
+              <label class="block text-slate-600 mb-1">Тип</label>
+              <select name="object_type" class="w-full border rounded-lg px-3 py-2">
+                ${typeOpts.map(([v,l]) => `<option value="${v}" ${st===v?'selected':''}>${l}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Название</label>
+            <input name="name" value="${obj ? (obj.name||'').replace(/"/g,'&quot;') : ''}" class="w-full border rounded-lg px-3 py-2" placeholder="Краткое название">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Адрес</label>
+            <input name="address" value="${obj ? (obj.address||'').replace(/"/g,'&quot;') : ''}" class="w-full border rounded-lg px-3 py-2" placeholder="г. Усть-Каменогорск, ...">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-600 mb-1">Кол-во камер</label>
+              <input name="cameras_count" type="number" min="0" value="${obj ? (obj.cameras_count||0) : 0}" class="w-full border rounded-lg px-3 py-2">
+            </div>
+            <div>
+              <label class="block text-slate-600 mb-1">Статус</label>
+              <select name="status" class="w-full border rounded-lg px-3 py-2">
+                <option value="active" ${status==='active'?'selected':''}>active</option>
+                <option value="relocated" ${status==='relocated'?'selected':''}>relocated</option>
+                <option value="decommissioned" ${status==='decommissioned'?'selected':''}>decommissioned</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Ответственный по умолчанию</label>
+            <input name="responsible_default" value="${obj ? (obj.responsible_default||'').replace(/"/g,'&quot;') : ''}" class="w-full border rounded-lg px-3 py-2" placeholder="ФИО">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Примечания</label>
+            <textarea name="notes" rows="2" class="w-full border rounded-lg px-3 py-2">${obj ? (obj.notes||'') : ''}</textarea>
+          </div>
+          <div class="flex justify-between gap-2 pt-2">
+            ${isEdit ? '<button type="button" id="btn-del-obj" class="px-3 py-2 text-red-600 border border-red-200 rounded-lg text-xs hover:bg-red-50">Удалить</button>' : '<span></span>'}
+            <div class="flex gap-2">
+              <button type="button" onclick="closeModal()" class="px-4 py-2 border rounded-lg">Отмена</button>
+              <button type="submit" class="px-4 py-2 bg-teal-700 text-white rounded-lg">${isEdit ? 'Сохранить' : 'Создать'}</button>
+            </div>
+          </div>
+        </form>
+      `;
+      openModal();
+
+      if (isEdit) {
+        const del = document.getElementById('btn-del-obj');
+        if (del) del.onclick = async () => {
+          if (!confirm('Удалить объект ' + obj.code + '?')) return;
+          try {
+            await api('/api/objects/' + objectId, { method: 'DELETE' });
+            closeModal();
+            loadPage('objects');
+          } catch (e) { alert(e.message); }
+        };
+      }
+
+      document.getElementById('object-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const body = {
+          code: fd.get('code').trim(),
+          name: fd.get('name') || null,
+          address: fd.get('address') || null,
+          object_type: fd.get('object_type'),
+          cameras_count: parseInt(fd.get('cameras_count') || '0', 10) || 0,
+          status: fd.get('status'),
+          responsible_default: fd.get('responsible_default') || null,
+          notes: fd.get('notes') || null,
+        };
+        try {
+          if (isEdit) {
+            await api('/api/objects/' + objectId, { method: 'PATCH', body: JSON.stringify(body) });
+          } else {
+            await api('/api/objects', { method: 'POST', body: JSON.stringify(body) });
+          }
+          closeModal();
+          loadPage('objects');
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    }
+
 
     // ----- Daily -----
     async function renderDaily(el) {
