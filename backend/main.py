@@ -268,6 +268,7 @@ def get_regulations():
 def list_plans(
     status: Optional[str] = None,
     object_id: Optional[int] = None,
+    department_id: Optional[int] = None,
     responsible: Optional[str] = None,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
@@ -280,6 +281,8 @@ def list_plans(
         q = q.filter(PPRPlan.status == status)
     if object_id:
         q = q.filter(PPRPlan.object_id == object_id)
+    if department_id is not None:
+        q = q.filter(PPRPlan.department_id == department_id)
     if responsible:
         q = q.filter(PPRPlan.responsible.ilike(f"%{responsible}%"))
     if from_date:
