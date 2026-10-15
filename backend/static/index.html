@@ -428,6 +428,7 @@
                     <td class="px-4 py-3 text-xs">${(p.work_types_done || []).join(', ') || '—'}</td>
                     <td class="px-4 py-3 whitespace-nowrap">
                       ${p.status !== 'done' ? `<button onclick="completePlan(${p.id})" class="text-teal-700 hover:underline text-xs font-medium">Выполнить</button>` : ''}
+                      <button onclick="openEditPlanModal(${p.id})" class="text-slate-700 hover:underline text-xs ml-2">Изменить</button>
                       <a href="/api/plans/${p.id}/act.pdf" target="_blank" class="text-slate-600 hover:underline text-xs ml-2">PDF</a>
                     </td>
                   </tr>
@@ -468,7 +469,7 @@
       };
     }
 
-    async function completePlan(id) {
+    async async function completePlan(id) {
       if (!confirm('Отметить задачу как выполненную?')) return;
       try {
         await api(`/api/plans/${id}/complete?work_types=7.5&work_types=7.6&work_types=7.7&work_types=7.8`, { method: 'POST' });
@@ -521,6 +522,109 @@
         }
       };
     }
+
+    async function openEditPlanModal(planId) {
+      const [plan, staff] = await Promise.all([
+        api('/api/plans/' + planId),
+        api('/api/staff?active_only=true&can_do_ppr=true').catch(() => api('/api/staff?active_only=true')),
+      ]);
+      const st = plan.status || 'planned';
+      $('#modal-title').textContent = 'Редактирование задачи #' + planId;
+      $('#modal-body').innerHTML = `
+        <form id="edit-plan-form" class="space-y-3 text-sm">
+          <div>
+            <label class="block text-slate-600 mb-1">Название</label>
+            <input name="title" value="${(plan.title || '').replace(/"/g, '&quot;')}" class="w-full border rounded-lg px-3 py-2" required>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-600 mb-1">Дата плана</label>
+              <input name="planned_date" type="date" value="${plan.planned_date || ''}" class="w-full border rounded-lg px-3 py-2" required>
+            </div>
+            <div>
+              <label class="block text-slate-600 mb-1">Фактическая дата</label>
+              <input name="fact_date" type="date" value="${plan.fact_date || ''}" class="w-full border rounded-lg px-3 py-2">
+            </div>
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Статус</label>
+            <select name="status" class="w-full border rounded-lg px-3 py-2">
+              <option value="planned" ${st==='planned'?'selected':''}>Запланировано</option>
+              <option value="in_progress" ${st==='in_progress'?'selected':''}>В работе</option>
+              <option value="done" ${st==='done'?'selected':''}>Исполнено</option>
+              <option value="overdue" ${st==='overdue'?'selected':''}>Просрочено</option>
+              <option value="cancelled" ${st==='cancelled'?'selected':''}>Отменено</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Исполнитель</label>
+            <select name="assignee_id" class="w-full border rounded-lg px-3 py-2">
+              <option value="">— не назначен —</option>
+              ${(staff || []).map(s =>
+                `<option value="${s.id}" ${plan.assignee_id===s.id?'selected':''}>${s.full_name || s.username}${s.ppr_specialty ? ' ('+s.ppr_specialty+')' : ''}</option>`
+              ).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Ответственный (ФИО в отчётах)</label>
+            <input name="responsible" value="${(plan.responsible || '').replace(/"/g, '&quot;')}" class="w-full border rounded-lg px-3 py-2" placeholder="ФИО">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Виды работ (через запятую)</label>
+            <input name="work_types_done" value="${(plan.work_types_done || []).join(', ')}" class="w-full border rounded-lg px-3 py-2" placeholder="7.5, 7.6">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">Комментарий</label>
+            <textarea name="comment" rows="2" class="w-full border rounded-lg px-3 py-2">${plan.comment || ''}</textarea>
+          </div>
+          <div class="flex justify-between gap-2 pt-2">
+            <button type="button" id="btn-delete-plan" class="px-3 py-2 text-red-600 border border-red-200 rounded-lg text-xs hover:bg-red-50">Удалить</button>
+            <div class="flex gap-2">
+              <button type="button" onclick="closeModal()" class="px-4 py-2 border rounded-lg">Отмена</button>
+              <button type="submit" class="px-4 py-2 bg-teal-700 text-white rounded-lg">Сохранить</button>
+            </div>
+          </div>
+        </form>
+      `;
+      openModal();
+
+      const del = document.getElementById('btn-delete-plan');
+      if (del) del.onclick = async () => {
+        if (!confirm('Удалить задачу #' + planId + '?')) return;
+        try {
+          await api('/api/plans/' + planId, { method: 'DELETE' });
+          closeModal();
+          loadPage('plans');
+        } catch (e) { alert(e.message); }
+      };
+
+      document.getElementById('edit-plan-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const workRaw = (fd.get('work_types_done') || '').trim();
+        const body = {
+          title: fd.get('title'),
+          planned_date: fd.get('planned_date'),
+          status: fd.get('status'),
+          responsible: fd.get('responsible') || null,
+          comment: fd.get('comment') || null,
+          work_types_done: workRaw ? workRaw.split(',').map(s => s.trim()).filter(Boolean) : [],
+        };
+        const fact = fd.get('fact_date');
+        if (fact) body.fact_date = fact;
+        else if (fd.get('status') !== 'done') body.fact_date = null;
+        const aid = fd.get('assignee_id');
+        body.assignee_id = aid ? parseInt(aid, 10) : null;
+        try {
+          await api('/api/plans/' + planId, { method: 'PATCH', body: JSON.stringify(body) });
+          closeModal();
+          loadPage('plans');
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    }
+
 
     // ----- Objects -----
     let objectsFilter = { type: '', search: '' };
