@@ -44,6 +44,10 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    duty_columns = {column["name"] for column in inspect(engine).get_columns("duty_schedules")}
+    if "department_id" not in duty_columns:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TABLE duty_schedules ADD COLUMN department_id INTEGER REFERENCES departments(id)")
     # Подразделение относится к задаче ППР, объект не закрепляется за подразделением.
     plan_columns = {column["name"] for column in inspect(engine).get_columns("ppr_plans")}
     if "department_id" not in plan_columns:
@@ -854,6 +858,8 @@ def list_duties(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     user_id: Optional[int] = None,
+    department_id: Optional[int] = None,
+    scope: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     q = db.query(DutySchedule).options(joinedload(DutySchedule.user))
@@ -863,7 +869,11 @@ def list_duties(
         q = q.filter(DutySchedule.duty_date <= to_date)
     if user_id:
         q = q.filter(DutySchedule.user_id == user_id)
-    return q.order_by(DutySchedule.duty_date).all()
+    if scope == "global":
+        q = q.filter(DutySchedule.department_id.is_(None))
+    elif department_id is not None:
+        q = q.filter(DutySchedule.department_id == department_id)
+    return q.order_by(DutySchedule.duty_date, DutySchedule.department_id, DutySchedule.shift, DutySchedule.id).all()
 
 
 @app.get("/api/duties/today")
@@ -873,6 +883,7 @@ def duty_today(db: Session = Depends(get_db)):
         db.query(DutySchedule)
         .options(joinedload(DutySchedule.user))
         .filter(DutySchedule.duty_date == today)
+        .order_by(DutySchedule.department_id, DutySchedule.id)
         .all()
     )
     return [
@@ -881,6 +892,7 @@ def duty_today(db: Session = Depends(get_db)):
             "duty_date": d.duty_date.isoformat(),
             "shift": d.shift,
             "user_id": d.user_id,
+            "department_id": d.department_id,
             "full_name": d.user.full_name if d.user else None,
             "username": d.user.username if d.user else None,
         }
@@ -898,10 +910,16 @@ def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db
         raise HTTPException(404, "Сотрудник не найден")
     if not staff.is_active or not staff.can_duty:
         raise HTTPException(422, "Назначить можно только активного сотрудника с правом дежурства")
-    # График единый для всей организации: подразделение сотрудника не ограничивает охват дежурства.
+    if data.department_id is not None:
+        department = db.query(Department).filter(Department.id == data.department_id).first()
+        if not department or not department.is_active:
+            raise HTTPException(422, "Подразделение не найдено или неактивно")
+        if staff.department_id != data.department_id:
+            raise HTTPException(422, "Для графика подразделения выберите сотрудника этого подразделения")
     existing = db.query(DutySchedule).filter(
         DutySchedule.duty_date == data.duty_date,
         DutySchedule.shift == shift,
+        DutySchedule.department_id == data.department_id if data.department_id is not None else DutySchedule.department_id.is_(None),
     ).first()
     if existing:
         existing.user_id = data.user_id
@@ -909,7 +927,13 @@ def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db
         db.commit()
         db.refresh(existing)
         return existing
-    d = DutySchedule(duty_date=data.duty_date, user_id=data.user_id, shift=shift, notes=data.notes)
+    d = DutySchedule(
+        duty_date=data.duty_date,
+        user_id=data.user_id,
+        department_id=data.department_id,
+        shift=shift,
+        notes=data.notes,
+    )
     db.add(d)
     db.commit()
     db.refresh(d)
@@ -926,20 +950,37 @@ def create_duties_bulk(data: schemas.DutyBulkCreate, user: User = Depends(requir
         raise HTTPException(404, "Сотрудник не найден")
     if not staff.is_active or not staff.can_duty:
         raise HTTPException(422, "Назначить можно только активного сотрудника с правом дежурства")
+    if data.department_id is not None:
+        department = db.query(Department).filter(Department.id == data.department_id).first()
+        if not department or not department.is_active:
+            raise HTTPException(422, "Подразделение не найдено или неактивно")
+        if staff.department_id != data.department_id:
+            raise HTTPException(422, "Для графика подразделения выберите сотрудника этого подразделения")
     dates = sorted(set(data.dates))
     created = 0
     updated = 0
     for duty_date in dates:
-        existing = db.query(DutySchedule).filter(
+        q = db.query(DutySchedule).filter(
             DutySchedule.duty_date == duty_date,
             DutySchedule.shift == shift,
-        ).first()
+        )
+        q = q.filter(
+            DutySchedule.department_id == data.department_id
+            if data.department_id is not None else DutySchedule.department_id.is_(None)
+        )
+        existing = q.first()
         if existing:
             existing.user_id = data.user_id
             existing.notes = data.notes
             updated += 1
         else:
-            db.add(DutySchedule(duty_date=duty_date, user_id=data.user_id, shift=shift, notes=data.notes))
+            db.add(DutySchedule(
+                duty_date=duty_date,
+                user_id=data.user_id,
+                department_id=data.department_id,
+                shift=shift,
+                notes=data.notes,
+            ))
             created += 1
     db.commit()
     return {"created": created, "updated": updated, "message": f"Создано {created}, обновлено {updated}"}
