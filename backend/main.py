@@ -72,7 +72,8 @@ def on_startup():
             seed.seed_sample_plans(db)
     finally:
         db.close()
-
+    # Запуск фонового планировщика с параметрами из БД.
+    start_scheduler()
 
 
 # ========== System settings ==========
