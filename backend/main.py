@@ -82,6 +82,12 @@ def on_startup():
     start_telegram_bot(db=None)
 
 
+@app.on_event("shutdown")
+def on_shutdown():
+    from telegram_bot import stop_telegram_bot
+    stop_telegram_bot()
+
+
 # ========== System settings ==========
 @app.get("/api/settings")
 def list_system_settings(user: User = Depends(require_admin), db: Session = Depends(get_db)):
