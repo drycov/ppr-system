@@ -92,7 +92,14 @@
           <i data-lucide="calendar-days" class="w-4 h-4"></i> Дежурства
         </a>
       </nav>
-      <div class="p-4 border-t border-slate-100 text-xs text-slate-500">
+      <div class="p-4 border-t border-slate-100 text-xs text-slate-500 space-y-2">
+        <div id="sidebar-user" class="hidden">
+          <div class="font-medium text-slate-700 truncate" id="sidebar-user-name"></div>
+          <div class="text-slate-400" id="sidebar-user-role"></div>
+          <button type="button" onclick="doLogout()" class="mt-2 w-full py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-700 hover:border-red-200 text-xs">
+            Выйти из системы
+          </button>
+        </div>
         <div class="font-medium text-slate-700">ТОО «Satory Company ltd»</div>
         <div>филиал г. Усть-Каменогорск</div>
         <div class="mt-1">ОСС · 2026</div>
@@ -105,9 +112,16 @@
         <h1 class="text-lg font-semibold" id="page-title">Дашборд</h1>
         <div class="flex items-center gap-4 text-sm text-slate-600">
           <span id="current-date"></span>
-          <div class="flex items-center gap-2">
-            <div class="w-8 h-8 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center font-semibold text-xs">ДИ</div>
-            <span class="hidden sm:inline">Рыков Д.И.</span>
+          <div id="user-chip" class="flex items-center gap-2">
+            <div id="user-avatar" class="w-8 h-8 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center font-semibold text-xs">—</div>
+            <div class="hidden sm:block leading-tight">
+              <div id="user-name" class="font-medium text-slate-800 text-sm">Гость</div>
+              <div id="user-role" class="text-[11px] text-slate-400"></div>
+            </div>
+            <button type="button" id="btn-logout" onclick="doLogout()" title="Выйти"
+              class="ml-1 px-2 py-1.5 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100">
+              Выход
+            </button>
           </div>
         </div>
       </header>
@@ -191,6 +205,38 @@
       return res;
     }
 
+    function initialsFromName(name) {
+      if (!name) return '?';
+      const parts = String(name).trim().split(/\s+/).filter(Boolean);
+      if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+      return parts[0].slice(0, 2).toUpperCase();
+    }
+
+    const ROLE_LABELS = {
+      admin: 'Администратор',
+      head: 'Начальник ОСС',
+      engineer: 'Инженер',
+      viewer: 'Наблюдатель',
+    };
+
+    function updateUserUI() {
+      const name = (CURRENT_USER && (CURRENT_USER.full_name || CURRENT_USER.username)) || 'Гость';
+      const role = (CURRENT_USER && CURRENT_USER.role) || '';
+      const av = document.getElementById('user-avatar');
+      const un = document.getElementById('user-name');
+      const ur = document.getElementById('user-role');
+      if (av) av.textContent = initialsFromName(name);
+      if (un) un.textContent = name;
+      if (ur) ur.textContent = ROLE_LABELS[role] || role;
+      const su = document.getElementById('sidebar-user');
+      const sun = document.getElementById('sidebar-user-name');
+      const sur = document.getElementById('sidebar-user-role');
+      if (su) su.classList.toggle('hidden', !CURRENT_USER);
+      if (sun) sun.textContent = name;
+      if (sur) sur.textContent = ROLE_LABELS[role] || role;
+      window.__user = CURRENT_USER;
+    }
+
     async function doLogin(username, password) {
       const body = new URLSearchParams({ username, password });
       const res = await fetch('/api/auth/login', {
@@ -200,22 +246,74 @@
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || 'Ошибка входа');
+        const detail = err.detail;
+        throw new Error(typeof detail === 'string' ? detail : 'Неверный логин или пароль');
       }
       const data = await res.json();
       TOKEN = data.access_token;
-      CURRENT_USER = { full_name: data.full_name, role: data.role, username };
+      CURRENT_USER = {
+        full_name: data.full_name,
+        role: data.role,
+        username: username,
+      };
       localStorage.setItem('ppr_token', TOKEN);
       localStorage.setItem('ppr_user', JSON.stringify(CURRENT_USER));
+      // уточнить профиль
+      try {
+        const me = await api('/api/auth/me');
+        CURRENT_USER = {
+          id: me.id,
+          username: me.username,
+          full_name: me.full_name,
+          role: me.role,
+        };
+        localStorage.setItem('ppr_user', JSON.stringify(CURRENT_USER));
+      } catch (_) {}
+      updateUserUI();
       return data;
     }
 
     function doLogout() {
-      TOKEN = ''; CURRENT_USER = null;
+      TOKEN = '';
+      CURRENT_USER = null;
       localStorage.removeItem('ppr_token');
       localStorage.removeItem('ppr_user');
-      location.reload();
+      updateUserUI();
+      const overlay = document.getElementById('login-overlay');
+      if (overlay) overlay.style.display = 'flex';
+      const content = document.getElementById('content');
+      if (content) content.innerHTML = '';
+      // сброс ошибки входа
+      const err = document.getElementById('login-err');
+      if (err) { err.classList.add('hidden'); err.textContent = ''; }
     }
+
+    async function restoreSession() {
+      if (!TOKEN) {
+        updateUserUI();
+        return false;
+      }
+      try {
+        const me = await api('/api/auth/me');
+        CURRENT_USER = {
+          id: me.id,
+          username: me.username,
+          full_name: me.full_name,
+          role: me.role,
+        };
+        localStorage.setItem('ppr_user', JSON.stringify(CURRENT_USER));
+        updateUserUI();
+        return true;
+      } catch (e) {
+        TOKEN = '';
+        CURRENT_USER = null;
+        localStorage.removeItem('ppr_token');
+        localStorage.removeItem('ppr_user');
+        updateUserUI();
+        return false;
+      }
+    }
+
 
     // ========== Navigation ==========
     const titles = {
@@ -840,113 +938,108 @@
 
     // ----- Daily -----
     async function renderDaily(el) {
-      const checks = await api('/api/daily-checks?limit=30');
+      const checks = await api('/api/daily-checks?limit=20');
       const tpl = await api('/api/daily-checks/template');
       const items = tpl.items || [];
       const today = new Date().toISOString().slice(0, 10);
+      const me = (window.__user && (window.__user.full_name || window.__user.username)) || '';
 
-      let me = CURRENT_USER || window.__user || {};
-      try {
-        const profile = await api('/api/auth/me');
-        if (profile) {
-          me = { ...me, ...profile };
-          CURRENT_USER = { ...(CURRENT_USER || {}), ...profile };
-          window.__user = CURRENT_USER;
-        }
-      } catch (_) {}
-      const engineerName = me.full_name || me.username || '';
-
-      const myToday = checks.find(c => c.check_date === today && (c.engineer === engineerName || (engineerName && (c.engineer || '').includes(engineerName))));
-
-      const checklistHtml = items.map((it) => `
-        <div class="border border-slate-100 rounded-lg p-3 space-y-2 hover:bg-slate-50/80 transition" data-code="${it.code}">
+      const checklistHtml = items.map((it, i) => `
+        <div class="border border-slate-100 rounded-lg p-3 space-y-2" data-code="${it.code}">
           <div class="flex items-start gap-2">
-            <input type="checkbox" id="done_${it.code}" name="done_${it.code}" class="mt-1 rounded border-slate-300 text-teal-700 cl-done" checked>
-            <label for="done_${it.code}" class="flex-1 font-medium text-slate-800 leading-snug cursor-pointer">
-              <span class="text-[11px] font-mono text-slate-400 mr-1.5">${it.code}</span>${it.name}
+            <input type="checkbox" id="done_${it.code}" name="done_${it.code}" class="mt-1 cl-done" checked>
+            <label for="done_${it.code}" class="flex-1 font-medium text-slate-800 leading-snug">
+              <span class="text-xs text-slate-400 mr-1">${it.code}</span>${it.name}
             </label>
           </div>
           <div class="flex items-center gap-2 pl-6">
-            <select name="status_${it.code}" class="border border-slate-200 rounded-md px-2 py-1 text-xs cl-status bg-white">
-              <option value="ok">✓ ОК</option>
-              <option value="issues">⚠ Проблемы</option>
-              <option value="skip">– Пропущено</option>
+            <select name="status_${it.code}" class="border rounded px-2 py-1 text-xs cl-status">
+              <option value="ok">ОК</option>
+              <option value="issues">Проблемы</option>
+              <option value="skip">Пропущено</option>
             </select>
-            <input type="text" name="note_${it.code}" placeholder="комментарий (необяз.)" class="flex-1 border border-slate-200 rounded-md px-2 py-1 text-xs">
+            <input type="text" name="note_${it.code}" placeholder="комментарий" class="flex-1 border rounded px-2 py-1 text-xs">
           </div>
         </div>
       `).join('');
 
       el.innerHTML = `
-        <div class="mb-4 flex flex-wrap items-center gap-3">
-          <p class="text-sm text-slate-600">Чек-лист <span class="text-slate-400">· раздел 2 Положения ОСС</span></p>
-          ${myToday
-            ? `<span class="text-xs px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Сегодня уже сдано</span>`
-            : `<span class="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">Нужна отметка за сегодня</span>`}
-        </div>
         <div class="grid lg:grid-cols-5 gap-6">
-          <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div class="bg-teal-800 text-white px-5 py-3">
-              <div class="font-semibold">Новая проверка</div>
-              <div class="text-xs text-teal-100/90 mt-0.5">Отметьте пункты по регламенту</div>
-            </div>
-            <form id="daily-form" class="p-5 space-y-4 text-sm">
+          <div class="lg:col-span-2 bg-white rounded-xl border border-slate-100 p-5">
+            <h3 class="font-semibold mb-1">Ежедневный контроль</h3>
+            <p class="text-xs text-slate-500 mb-4">Отметьте выполнение по чек-листу (раздел 2 Положения ОСС)</p>
+            <form id="daily-form" class="space-y-3 text-sm">
               <div class="grid grid-cols-2 gap-3">
                 <div>
-                  <label class="block text-slate-500 text-xs mb-1">Дата</label>
-                  <input name="check_date" type="date" value="${today}" class="w-full border border-slate-200 rounded-lg px-3 py-2 bg-slate-50" required>
+                  <label class="block text-slate-600 mb-1">Дата</label>
+                  <input name="check_date" type="date" value="${today}" class="w-full border rounded-lg px-3 py-2" required>
                 </div>
                 <div>
-                  <label class="block text-slate-500 text-xs mb-1">Инженер</label>
-                  <input name="engineer" value="${String(engineerName).replace(/"/g, '&quot;')}" readonly
-                    class="w-full border border-slate-200 rounded-lg px-3 py-2 bg-slate-100 text-slate-800 cursor-not-allowed font-medium" required>
-                  <p class="text-[11px] text-slate-400 mt-1">Из текущей учётной записи</p>
+                  <label class="block text-slate-600 mb-1">Инженер</label>
+                  <input name="engineer" value="${me}" class="w-full border rounded-lg px-3 py-2" required>
                 </div>
               </div>
-              <div class="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-                ${checklistHtml || '<p class="text-slate-400 text-xs">Шаблон чек-листа пуст</p>'}
+              <div class="space-y-2" id="checklist-box">
+                ${checklistHtml}
+              </div>
+              <div class="flex items-center justify-between text-xs text-slate-500 px-1">
+                <button type="button" id="check-all" class="text-teal-700 hover:underline">Отметить всё</button>
+                <button type="button" id="uncheck-all" class="text-slate-500 hover:underline">Снять всё</button>
+                <span id="cl-progress">0 / ${items.length}</span>
               </div>
               <div>
-                <label class="block text-slate-500 text-xs mb-1">Общие примечания</label>
-                <textarea name="notes" rows="2" placeholder="Кратко, если были отклонения…" class="w-full border border-slate-200 rounded-lg px-3 py-2"></textarea>
+                <label class="block text-slate-600 mb-1">Общие примечания</label>
+                <textarea name="notes" rows="2" class="w-full border rounded-lg px-3 py-2" placeholder="Замечания по смене..."></textarea>
               </div>
-              <button type="submit" class="w-full py-2.5 bg-teal-700 text-white rounded-lg font-medium hover:bg-teal-800 disabled:opacity-50"
-                ${myToday ? 'disabled title="Запись за сегодня уже есть"' : ''}>
-                ${myToday ? 'Уже сохранено на сегодня' : 'Сохранить проверку'}
+              <button type="submit" class="w-full py-2.5 bg-teal-700 text-white rounded-lg hover:bg-teal-800 font-medium">
+                Сохранить выполнение
               </button>
             </form>
           </div>
-          <div class="lg:col-span-3 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div class="px-5 py-3 border-b border-slate-100 flex justify-between items-center">
-              <h3 class="font-semibold text-slate-800">История</h3>
-              <span class="text-xs text-slate-400">${checks.length} записей</span>
-            </div>
-            ${checks.length === 0 ? '<p class="p-6 text-slate-400 text-sm">Пока нет записей</p>' : `
-              <div class="divide-y divide-slate-100 max-h-[75vh] overflow-y-auto">
+          <div class="lg:col-span-3 bg-white rounded-xl border border-slate-100 p-5">
+            <h3 class="font-semibold mb-4">История проверок</h3>
+            ${checks.length === 0 ? '<p class="text-slate-400 text-sm">Пока нет записей</p>' : `
+              <div class="space-y-3">
                 ${checks.map(c => {
+                  const done = c.done_count ?? 0;
+                  const total = c.total_count ?? 7;
+                  const pct = total ? Math.round(done / total * 100) : 0;
                   const cl = c.checklist || [];
-                  const done = c.done_count != null ? c.done_count : cl.filter(i => i.done).length;
-                  const total = c.total_count != null ? c.total_count : (cl.length || items.length || 1);
-                  const issues = cl.filter(i => i.status === 'issues').length;
-                  const allOk = issues === 0 && done >= total;
-                  return `<div class="px-5 py-3 hover:bg-slate-50/80">
-                    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-                      <div class="flex items-center gap-2">
-                        <span class="font-medium text-slate-800">${formatDate(c.check_date)}</span>
-                        <span class="text-xs px-2 py-0.5 rounded-full ${allOk ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}">${done}/${total}${issues ? ' · ' + issues + ' проблем' : ''}</span>
+                  return `
+                  <div class="border border-slate-100 rounded-lg p-3 text-sm">
+                    <div class="flex justify-between items-center mb-2">
+                      <div>
+                        <span class="font-medium">${formatDate(c.check_date)}</span>
+                        <span class="text-slate-500 ml-2">${c.engineer || ''}</span>
                       </div>
-                      <span class="text-xs text-slate-500">${c.engineer || '—'}</span>
+                      <div class="flex items-center gap-2">
+                        <div class="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div class="h-full ${pct===100?'bg-green-500':pct>=50?'bg-amber-400':'bg-slate-300'}" style="width:${pct}%"></div>
+                        </div>
+                        <span class="text-xs text-slate-500">${done}/${total}</span>
+                      </div>
                     </div>
-                    <div class="flex flex-wrap gap-1.5">
-                      ${(cl.length ? cl : items.map(it => ({ code: it.code, name: it.name, status: c[it.field] || 'ok', done: true }))).map(i => `
-                        <span class="text-[11px] px-2 py-0.5 rounded-md border ${
-                          i.status === 'issues' ? 'border-red-100 bg-red-50 text-red-700' :
-                          i.status === 'skip' || !i.done ? 'border-slate-100 bg-slate-50 text-slate-400' :
-                          'border-emerald-100 bg-emerald-50 text-emerald-800'
-                        }" title="${i.name || ''}">${i.code || ''}: ${i.status === 'issues' ? '!' : (i.done === false || i.status === 'skip' ? '–' : 'ОК')}</span>
-                      `).join('')}
+                    <div class="space-y-1">
+                      ${cl.length ? cl.map(it => `
+                        <div class="flex items-center gap-2 text-xs">
+                          <span class="${it.done ? 'text-green-600' : 'text-slate-300'}">${it.done ? '✓' : '○'}</span>
+                          <span class="text-slate-400 w-6">${it.code}</span>
+                          <span class="flex-1 ${it.done ? 'text-slate-700' : 'text-slate-400'}">${it.name}</span>
+                          <span class="px-1.5 py-0.5 rounded ${
+                            it.status==='ok' && it.done ? 'bg-green-50 text-green-700' :
+                            it.status==='issues' ? 'bg-red-50 text-red-700' :
+                            'bg-slate-50 text-slate-400'
+                          }">${it.done ? (it.status==='issues'?'проблемы':'ок') : '—'}</span>
+                        </div>
+                      `).join('') : `
+                        <div class="flex flex-wrap gap-2 text-xs">
+                          ${[['monitoring_dashboard','Мониторинг'],['critical_services','Сервисы'],['logs_security','Логи'],['config_backups','Бэкапы'],['channel_utilization','Каналы'],['ups_status','ИБП']].map(([k,l]) =>
+                            `<span class="px-2 py-0.5 rounded ${c[k]==='ok'?'bg-green-50 text-green-700':c[k]==='skip'?'bg-slate-50 text-slate-400':'bg-red-50 text-red-700'}">${l}: ${c[k]||'—'}</span>`
+                          ).join('')}
+                        </div>
+                      `}
                     </div>
-                    ${c.notes ? `<div class="mt-2 text-xs text-slate-500">${c.notes}</div>` : ''}
+                    ${c.notes ? `<div class="mt-2 text-slate-500 text-xs border-t border-slate-50 pt-2">${c.notes}</div>` : ''}
                   </div>`;
                 }).join('')}
               </div>
@@ -955,8 +1048,19 @@
         </div>
       `;
 
-      const form = $('#daily-form');
-      if (form) form.onsubmit = async (e) => {
+      const updateProgress = () => {
+        const n = document.querySelectorAll('#checklist-box .cl-done:checked').length;
+        const elp = document.getElementById('cl-progress');
+        if (elp) elp.textContent = n + ' / ' + items.length;
+      };
+      document.querySelectorAll('#checklist-box .cl-done').forEach(cb => cb.addEventListener('change', updateProgress));
+      updateProgress();
+      const ca = document.getElementById('check-all');
+      const ua = document.getElementById('uncheck-all');
+      if (ca) ca.onclick = () => { document.querySelectorAll('#checklist-box .cl-done').forEach(c => c.checked = true); updateProgress(); };
+      if (ua) ua.onclick = () => { document.querySelectorAll('#checklist-box .cl-done').forEach(c => c.checked = false); updateProgress(); };
+
+      $('#daily-form').onsubmit = async (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
         const checklist = items.map(it => ({
@@ -968,7 +1072,7 @@
         }));
         const body = {
           check_date: fd.get('check_date'),
-          engineer: fd.get('engineer') || engineerName,
+          engineer: fd.get('engineer'),
           checklist,
           notes: fd.get('notes') || null,
         };
@@ -980,7 +1084,6 @@
         }
       };
     }
-
 
     // ----- Regulations -----
     async function renderRegulations(el) {
@@ -1446,12 +1549,17 @@ async function importExcelNow() {
       };
     }
 
-    if (!TOKEN) {
-      document.getElementById('login-overlay').style.display = 'flex';
-    } else {
-      loadPage('dashboard');
-    }
-    lucide.createIcons();
+    (async function initAuth() {
+      updateUserUI();
+      const ok = await restoreSession();
+      if (!ok) {
+        document.getElementById('login-overlay').style.display = 'flex';
+      } else {
+        document.getElementById('login-overlay').style.display = 'none';
+        loadPage('dashboard');
+      }
+      lucide.createIcons();
+    })();
   </script>
 </body>
 </html>
