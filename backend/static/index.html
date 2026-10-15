@@ -407,7 +407,8 @@
             <button onclick="document.querySelector('[data-page=plans]').click()" class="px-4 py-2 bg-teal-700 text-white rounded-lg text-sm hover:bg-teal-800">Открыть задачи ППР</button>
             <button onclick="document.querySelector('[data-page=daily]').click()" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900">Сдать ежедневный контроль</button>
             <button onclick="generatePlansNow()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">Сгенерировать план (месяц)</button>
-            <button onclick="exportExcelNow()" class="px-4 py-2 bg-emerald-700 text-white rounded-lg text-sm hover:bg-emerald-800">Экспорт Excel</button>
+            <button onclick="exportExcelNow()" class="px-4 py-2 bg-emerald-700 text-white rounded-lg text-sm hover:bg-emerald-800">Отчёт за месяц</button>
+            <button onclick="exportExcelPeriodNow()" class="px-4 py-2 bg-emerald-800 text-white rounded-lg text-sm hover:bg-emerald-900">Отчёт за период</button>
             <button onclick="importExcelNow()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm hover:bg-blue-800">Импорт Excel объектов</button>
             <button onclick="document.querySelector('[data-page=regulations]').click()" class="px-4 py-2 border border-slate-300 rounded-lg text-sm hover:bg-slate-50">Регламент</button>
             <button onclick="doLogout()" class="px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50">Выйти</button>
@@ -535,6 +536,7 @@
                     <td class="px-4 py-3 text-xs">${(p.work_types_done || []).join(', ') || '—'}</td>
                     <td class="px-4 py-3 whitespace-nowrap">
                       ${p.status !== 'done' ? `<button onclick="completePlan(${p.id})" class="text-teal-700 hover:underline text-xs font-medium">Выполнить</button>` : ''}
+                      <button onclick="fictitiousCompletePlan(${p.id})" class="text-red-700 hover:underline text-xs ml-2">Фиктивная отметка (админ)</button>
                       <button onclick="openEditPlanModal(${p.id})" class="text-slate-700 hover:underline text-xs ml-2">Изменить</button>
                       <a href="/api/plans/${p.id}/act.pdf" target="_blank" class="text-slate-600 hover:underline text-xs ml-2">PDF</a>
                     </td>
@@ -1524,6 +1526,37 @@ async function importExcelNow() {
     function exportExcelNow() {
       const n = new Date();
       window.open('/api/export/ppr.xlsx?year=' + n.getFullYear() + '&month=' + (n.getMonth()+1), '_blank');
+    }
+
+    function exportExcelPeriodNow() {
+      const today = new Date();
+      const defaultFrom = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2, '0') + '-01';
+      const fromDate = prompt('Дата начала периода (ГГГГ-ММ-ДД):', defaultFrom);
+      if (!fromDate) return;
+      const toDate = prompt('Дата окончания периода (ГГГГ-ММ-ДД):', today.toISOString().slice(0, 10));
+      if (!toDate) return;
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(fromDate) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(toDate) || fromDate > toDate) {
+        alert('Укажите корректные даты в формате ГГГГ-ММ-ДД; дата начала должна быть не позже даты окончания.');
+        return;
+      }
+      window.open('/api/export/ppr.xlsx?from_date=' + encodeURIComponent(fromDate) + '&to_date=' + encodeURIComponent(toDate), '_blank');
+    }
+
+    async function fictitiousCompletePlan(id) {
+      const reason = prompt('Причина административной фиктивной отметки. Она будет сохранена в аудите и отчёте:');
+      if (!reason || reason.trim().length < 5) {
+        if (reason !== null) alert('Причина должна содержать не менее 5 символов.');
+        return;
+      }
+      const factDate = prompt('Дата выполнения (ГГГГ-ММ-ДД):', new Date().toISOString().slice(0, 10));
+      if (!factDate || !/^\\d{4}-\\d{2}-\\d{2}$/.test(factDate)) return;
+      if (!confirm('ВНИМАНИЕ: задача будет отмечена как выполненная с явной пометкой «ФИКТИВНАЯ ОТМЕТКА». Продолжить?')) return;
+      try {
+        const query = new URLSearchParams({ reason: reason.trim(), fact_date: factDate });
+        await api('/api/plans/' + id + '/admin-fictitious-completion?' + query.toString(), { method: 'POST' });
+        alert('Фиктивная отметка внесена и будет выделена в отчёте.');
+        loadPage('plans');
+      } catch (e) { alert(e.message); }
     }
 
 // ========== Init ==========
