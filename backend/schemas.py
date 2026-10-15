@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Any
 from datetime import date, datetime
+
+from fio_utils import normalize_fio
 
 
 class ObjectBase(BaseModel):
@@ -12,6 +14,11 @@ class ObjectBase(BaseModel):
     status: str = "active"
     responsible_default: Optional[str] = None
     notes: Optional[str] = None
+
+    @field_validator("responsible_default", mode="before")
+    @classmethod
+    def _norm_resp_default(cls, v):
+        return normalize_fio(v) if v else v
 
 
 class ObjectCreate(ObjectBase):
@@ -25,6 +32,11 @@ class ObjectUpdate(BaseModel):
     status: Optional[str] = None
     responsible_default: Optional[str] = None
     notes: Optional[str] = None
+
+    @field_validator("responsible_default", mode="before")
+    @classmethod
+    def _norm_resp_default(cls, v):
+        return normalize_fio(v) if v is not None else v
 
 
 class ObjectOut(ObjectBase):
@@ -66,6 +78,11 @@ class PPRPlanBase(BaseModel):
     comment: Optional[str] = None
     assigned_by_duty: bool = False
 
+    @field_validator("responsible", mode="before")
+    @classmethod
+    def _norm_responsible(cls, v):
+        return normalize_fio(v) if v else v
+
 
 class PPRPlanCreate(PPRPlanBase):
     pass
@@ -77,6 +94,11 @@ class PPRPlanUpdate(BaseModel):
     work_types_done: Optional[List[str]] = None
     comment: Optional[str] = None
     responsible: Optional[str] = None
+
+    @field_validator("responsible", mode="before")
+    @classmethod
+    def _norm_responsible(cls, v):
+        return normalize_fio(v) if v is not None else v
 
 
 class PPRPlanOut(PPRPlanBase):
@@ -100,6 +122,11 @@ class DailyCheckBase(BaseModel):
     ups_status: str = "ok"
     incidents_logged: bool = True
     notes: Optional[str] = None
+
+    @field_validator("engineer", mode="before")
+    @classmethod
+    def _norm_engineer(cls, v):
+        return normalize_fio(v) if v else v
 
 
 class DailyCheckCreate(DailyCheckBase):
@@ -148,6 +175,11 @@ class StaffCreate(BaseModel):
     can_duty: bool = True
     notes: Optional[str] = None
 
+    @field_validator("full_name", mode="before")
+    @classmethod
+    def _norm_full_name(cls, v):
+        return normalize_fio(v) or v
+
 
 class StaffUpdate(BaseModel):
     full_name: Optional[str] = None
@@ -162,6 +194,11 @@ class StaffUpdate(BaseModel):
     can_duty: Optional[bool] = None
     notes: Optional[str] = None
     password: Optional[str] = None
+
+    @field_validator("full_name", mode="before")
+    @classmethod
+    def _norm_full_name(cls, v):
+        return normalize_fio(v) if v is not None else v
 
 
 class StaffOut(BaseModel):
