@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 from typing import List, Optional
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -45,8 +45,11 @@ app.add_middleware(
 def on_startup():
     Base.metadata.create_all(bind=engine)
     # Добавляем подразделение объектам в существующей БД без потери данных.
+    columns = {column["name"] for column in inspect(engine).get_columns("objects")}
+    if "department_id" not in columns:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TABLE objects ADD COLUMN department_id INTEGER REFERENCES departments(id)")
     with engine.begin() as conn:
-        conn.exec_driver_sql("ALTER TABLE objects ADD COLUMN IF NOT EXISTS department_id INTEGER REFERENCES departments(id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_objects_department_id ON objects (department_id)")
     # Автосид при первом запуске
     db = next(get_db())
