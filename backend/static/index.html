@@ -1368,61 +1368,192 @@
     
     
     
+    function escapeDirectoryHtml(value) {
+      return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]);
+      });
+    }
+
+    function filterDirectoryList(inputId, listId) {
+      const input = document.getElementById(inputId);
+      const list = document.getElementById(listId);
+      if (!input || !list) return;
+      const query = input.value.trim().toLocaleLowerCase('ru-RU');
+      let visible = 0;
+      list.querySelectorAll('[data-directory-item]').forEach(function(item) {
+        const matches = item.textContent.toLocaleLowerCase('ru-RU').includes(query);
+        item.classList.toggle('hidden', !matches);
+        if (matches) visible += 1;
+      });
+      const empty = document.getElementById(listId + '-no-results');
+      if (empty) empty.classList.toggle('hidden', visible > 0);
+    }
+
     async function renderDirectories(el) {
       const [deps, positions, roles] = await Promise.all([
         api('/api/departments?active_only=false'),
         api('/api/positions?active_only=false'),
         api('/api/roles')
       ]);
+      const activeDeps = deps.filter(function(d) { return d.is_active !== false; }).length;
+      const activePositions = positions.filter(function(p) { return p.is_active !== false; }).length;
+      const excludedCount = deps.filter(function(d) { return (d.excluded_template_ids || []).length > 0; }).length;
+      const card = 'bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden';
+      const cardHeader = 'px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-3';
+      const searchClass = 'w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100';
       el.innerHTML = `
-        <div class="grid lg:grid-cols-3 gap-6">
-          <div class="bg-white rounded-xl border p-5">
-            <div class="flex items-start justify-between gap-2 mb-3">
-              <h3 class="font-semibold">Подразделения</h3>
-              <div class="flex flex-col items-end gap-1">
-                <button onclick="excludeAllDepartmentsPpr()" class="text-xs text-red-700 hover:underline">Исключить всё для всех</button>
-                <button onclick="addDepartment()" class="text-xs text-teal-700 hover:underline">+ добавить</button>
+        <div class="space-y-5">
+          <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+            <div>
+              <h2 class="text-xl font-semibold text-slate-900">Справочники</h2>
+              <p class="text-sm text-slate-500 mt-1">Подразделения, должности и системные роли в одном месте.</p>
+            </div>
+            <div class="text-xs text-slate-500">Данные обновляются из системы при открытии раздела</div>
+          </div>
+          <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
+            <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs text-slate-500">Подразделения</div><div class="text-2xl font-semibold mt-1">${deps.length}</div><div class="text-xs text-slate-500 mt-1">Активных: ${activeDeps}</div></div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs text-slate-500">Должности</div><div class="text-2xl font-semibold mt-1">${positions.length}</div><div class="text-xs text-slate-500 mt-1">Активных: ${activePositions}</div></div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs text-slate-500">Системные роли</div><div class="text-2xl font-semibold mt-1">${roles.length}</div><div class="text-xs text-slate-500 mt-1">Доступны в системе</div></div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs text-slate-500">Настроены исключения ППР</div><div class="text-2xl font-semibold mt-1">${excludedCount}</div><div class="text-xs text-slate-500 mt-1">Подразделений с исключениями</div></div>
+          </div>
+          <div class="grid xl:grid-cols-3 gap-5 items-start">
+            <section class="${card}">
+              <div class="${cardHeader}">
+                <div><h3 class="font-semibold text-slate-900">Подразделения</h3><p class="text-xs text-slate-500 mt-1">Структура организации и правила ППР</p></div>
+                <button type="button" onclick="addDepartment()" class="shrink-0 rounded-lg bg-teal-700 px-3 py-2 text-xs font-medium text-white hover:bg-teal-800">+ Добавить</button>
               </div>
-            </div>
-            <ul class="text-sm space-y-2 max-h-96 overflow-y-auto">
-              ${deps.map(d => `<li class="border-b border-slate-50 py-2">
-                <div class="flex items-center justify-between gap-2">
-                  <span class="font-medium">${d.name}</span>
-                  <span class="text-xs text-slate-400">#${d.id}</span>
+              <div class="p-4 space-y-3">
+                <input id="directory-departments-search" class="${searchClass}" placeholder="Поиск подразделения…" oninput="filterDirectoryList('directory-departments-search','directory-departments-list')">
+                <div class="flex flex-wrap gap-2">
+                  <button onclick="excludeAllDepartmentsPpr()" class="rounded-lg border border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50">Исключить всё для всех</button>
+                  <span class="ml-auto self-center text-xs text-slate-400">${deps.length} записей</span>
                 </div>
-                <div class="mt-1 flex items-center justify-between gap-2">
-                  <span class="text-xs text-slate-500">${(d.excluded_template_ids || []).length ? 'Исключено регламентов: ' + d.excluded_template_ids.length : 'Исключения не заданы'}</span>
-                  <button type="button" onclick="openDepartmentSettings(${d.id})" class="text-xs text-teal-700 hover:underline">Настройки ППР</button>
-                </div>
-              </li>`).join('') || '<li class="text-slate-400">Пусто</li>'}
-            </ul>
+                <ul id="directory-departments-list" class="divide-y divide-slate-100">
+                  ${deps.map(function(d) {
+                    const name = escapeDirectoryHtml(d.name);
+                    const code = escapeDirectoryHtml(d.code || '');
+                    const excluded = (d.excluded_template_ids || []).length;
+                    return '<li data-directory-item class="py-3"><div class="flex items-start gap-3"><div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-sm font-semibold text-teal-800">' + name.slice(0,1).toUpperCase() + '</div><div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap"><span class="font-medium text-sm text-slate-800">' + name + '</span><span class="text-[11px] text-slate-400">#' + d.id + '</span>' + (d.is_active === false ? '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">Неактивно</span>' : '') + '</div>' + (code ? '<div class="text-xs text-slate-500 mt-0.5">Код: ' + code + '</div>' : '') + '<div class="flex items-center gap-2 flex-wrap mt-2"><span class="rounded-full px-2 py-1 text-[11px] ' + (excluded ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500') + '">' + (excluded ? 'Исключено регламентов: ' + excluded : 'Исключения ППР не заданы') + '</span></div><div class="flex flex-wrap gap-3 mt-2"><button type="button" onclick="editDepartment(' + d.id + ')" class="text-xs font-medium text-teal-700 hover:underline">Изменить</button><button type="button" onclick="openDepartmentSettings(' + d.id + ')" class="text-xs font-medium text-slate-600 hover:underline">Настройки ППР</button></div></div></div></li>';
+                  }).join('') || '<li class="py-8 text-center text-sm text-slate-400">Подразделений пока нет</li>'}
+                  <li id="directory-departments-list-no-results" class="hidden py-6 text-center text-sm text-slate-400">Ничего не найдено</li>
+                </ul>
+              </div>
+            </section>
+            <section class="${card}">
+              <div class="${cardHeader}">
+                <div><h3 class="font-semibold text-slate-900">Должности</h3><p class="text-xs text-slate-500 mt-1">Назначение подразделений и видов работ</p></div>
+                <button type="button" onclick="addPosition()" class="shrink-0 rounded-lg bg-teal-700 px-3 py-2 text-xs font-medium text-white hover:bg-teal-800">+ Добавить</button>
+              </div>
+              <div class="p-4 space-y-3">
+                <input id="directory-positions-search" class="${searchClass}" placeholder="Поиск должности…" oninput="filterDirectoryList('directory-positions-search','directory-positions-list')">
+                <ul id="directory-positions-list" class="divide-y divide-slate-100">
+                  ${positions.map(function(p) {
+                    const name = escapeDirectoryHtml(p.name);
+                    const department = escapeDirectoryHtml(p.department ? p.department.name : 'Подразделение не задано');
+                    const notes = escapeDirectoryHtml(p.notes || '');
+                    return '<li data-directory-item class="py-3"><div class="flex items-start gap-3"><div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-sm font-semibold text-indigo-700">' + name.slice(0,1).toUpperCase() + '</div><div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap"><span class="font-medium text-sm text-slate-800">' + name + '</span><span class="text-[11px] text-slate-400">#' + p.id + '</span>' + (p.is_active === false ? '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">Неактивна</span>' : '') + '</div><div class="text-xs text-slate-500 mt-1">' + department + '</div><div class="flex flex-wrap gap-1.5 mt-2">' + (p.can_do_ppr_default ? '<span class="rounded-full bg-teal-50 px-2 py-1 text-[11px] text-teal-700">ППР</span>' : '') + (p.can_duty_default ? '<span class="rounded-full bg-indigo-50 px-2 py-1 text-[11px] text-indigo-700">Дежурства</span>' : '') + (!p.can_do_ppr_default && !p.can_duty_default ? '<span class="text-[11px] text-slate-400">Виды работ не заданы</span>' : '') + '</div>' + (notes ? '<p class="text-xs text-slate-500 mt-2">' + notes + '</p>' : '') + '<button type="button" onclick="editPosition(' + p.id + ')" class="mt-2 text-xs font-medium text-teal-700 hover:underline">Изменить</button></div></div></li>';
+                  }).join('') || '<li class="py-8 text-center text-sm text-slate-400">Должностей пока нет</li>'}
+                  <li id="directory-positions-list-no-results" class="hidden py-6 text-center text-sm text-slate-400">Ничего не найдено</li>
+                </ul>
+              </div>
+            </section>
+            <section class="${card}">
+              <div class="${cardHeader}">
+                <div><h3 class="font-semibold text-slate-900">Системные роли</h3><p class="text-xs text-slate-500 mt-1">Роли, используемые системой</p></div>
+                <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-500">${roles.length}</span>
+              </div>
+              <div class="p-4 space-y-3">
+                <input id="directory-roles-search" class="${searchClass}" placeholder="Поиск роли или кода…" oninput="filterDirectoryList('directory-roles-search','directory-roles-list')">
+                <ul id="directory-roles-list" class="divide-y divide-slate-100">
+                  ${roles.map(function(r) {
+                    return '<li data-directory-item class="py-3"><div class="flex items-start gap-3"><div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><i data-lucide="shield-check" class="h-4 w-4"></i></div><div class="min-w-0 flex-1"><div class="font-medium text-sm text-slate-800">' + escapeDirectoryHtml(r.name) + '</div><code class="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">' + escapeDirectoryHtml(r.code) + '</code><p class="text-xs text-slate-500 mt-2">' + escapeDirectoryHtml(r.description || 'Описание не задано') + '</p></div></div></li>';
+                  }).join('') || '<li class="py-8 text-center text-sm text-slate-400">Роли не найдены</li>'}
+                  <li id="directory-roles-list-no-results" class="hidden py-6 text-center text-sm text-slate-400">Ничего не найдено</li>
+                </ul>
+              </div>
+            </section>
           </div>
-          <div class="bg-white rounded-xl border p-5 lg:col-span-1">
-            <div class="flex justify-between mb-3">
-              <h3 class="font-semibold">Должности</h3>
-              <button onclick="addPosition()" class="text-xs text-teal-700 hover:underline">+ добавить</button>
-            </div>
-            <ul class="text-sm space-y-2 max-h-96 overflow-y-auto">
-              ${positions.map(p => `<li class="border-b border-slate-50 py-1.5">
-                <div class="font-medium">${p.name}</div>
-                <div class="text-xs text-slate-500">${p.department ? p.department.name : '—'}
-                  ${p.can_do_ppr_default ? ' · ППР' : ''}${p.can_duty_default ? ' · деж.' : ''}
-                </div>
-              </li>`).join('') || '<li class="text-slate-400">Пусто</li>'}
-            </ul>
-          </div>
-          <div class="bg-white rounded-xl border p-5">
-            <h3 class="font-semibold mb-3">Системные роли</h3>
-            <ul class="text-sm space-y-2">
-              ${roles.map(r => `<li class="border-b border-slate-50 py-1.5">
-                <div><span class="font-mono text-xs bg-slate-100 px-1.5 rounded">${r.code}</span> ${r.name}</div>
-                <div class="text-xs text-slate-500">${r.description || ''}</div>
-              </li>`).join('')}
-            </ul>
-          </div>
-        </div>
-        <p class="text-xs text-slate-500 mt-4">Справочники заполняются из штатной расстановки при первом запуске. Сотрудников добавляйте отдельно в разделе «Сотрудники».</p>`;
+          <p class="text-xs text-slate-400">Системные роли доступны только для просмотра. Для изменения состава подразделений и должностей используйте кнопки «Изменить».</p>
+        </div>`;
+      if (window.lucide) lucide.createIcons();
     }
+
+    async function openDepartmentForm(department) {
+      const editing = Boolean(department);
+      const d = department || { name: '', code: '', sort_order: 0, notes: '', is_active: true };
+      $('#modal-title').textContent = editing ? 'Изменить подразделение' : 'Новое подразделение';
+      $('#modal-body').innerHTML = `
+        <form id="directory-department-form" class="space-y-4">
+          <label class="block"><span class="block text-sm font-medium text-slate-700 mb-1">Название *</span><input name="name" required maxlength="200" value="${escapeDirectoryHtml(d.name)}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"></label>
+          <div class="grid sm:grid-cols-2 gap-3">
+            <label class="block"><span class="block text-sm font-medium text-slate-700 mb-1">Код</span><input name="code" maxlength="100" value="${escapeDirectoryHtml(d.code || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"></label>
+            <label class="block"><span class="block text-sm font-medium text-slate-700 mb-1">Порядок сортировки</span><input name="sort_order" type="number" value="${Number(d.sort_order || 0)}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"></label>
+          </div>
+          <label class="block"><span class="block text-sm font-medium text-slate-700 mb-1">Примечание</span><textarea name="notes" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">${escapeDirectoryHtml(d.notes || '')}</textarea></label>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="is_active" ${d.is_active !== false ? 'checked' : ''} class="rounded border-slate-300"> Подразделение активно</label>
+          <div class="flex justify-end gap-2 border-t pt-3"><button type="button" id="directory-department-cancel" class="rounded-lg border px-4 py-2 text-sm">Отмена</button><button type="submit" id="directory-department-save" class="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white">Сохранить</button></div>
+        </form>`;
+      openModal();
+      const form = $('#directory-department-form');
+      $('#directory-department-cancel').onclick = closeModal;
+      form.onsubmit = async function(event) {
+        event.preventDefault();
+        const save = $('#directory-department-save');
+        save.disabled = true; save.textContent = 'Сохранение…';
+        const payload = { name: form.elements.name.value.trim(), code: form.elements.code.value.trim() || null, sort_order: Number(form.elements.sort_order.value || 0), notes: form.elements.notes.value.trim() || null, is_active: form.elements.is_active.checked };
+        try {
+          await api(editing ? '/api/departments/' + d.id : '/api/departments', { method: editing ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
+          closeModal(); toast(editing ? 'Подразделение обновлено' : 'Подразделение создано', 'success'); await loadPage('directories');
+        } catch (e) { toast(e.message || 'Не удалось сохранить подразделение', 'error'); save.disabled = false; save.textContent = 'Сохранить'; }
+      };
+    }
+    async function editDepartment(id) {
+      try {
+        const departments = await api('/api/departments?active_only=false');
+        const department = departments.find(function(item) { return Number(item.id) === Number(id); });
+        if (!department) throw new Error('Подразделение не найдено');
+        await openDepartmentForm(department);
+      } catch (e) { toast(e.message || 'Не удалось загрузить подразделение', 'error'); }
+    }
+
+    async function openPositionForm(position) {
+      const editing = Boolean(position);
+      const p = position || { name: '', department_id: null, can_do_ppr_default: false, can_duty_default: false, notes: '', is_active: true };
+      const departments = await api('/api/departments?active_only=false');
+      $('#modal-title').textContent = editing ? 'Изменить должность' : 'Новая должность';
+      $('#modal-body').innerHTML = `
+        <form id="directory-position-form" class="space-y-4">
+          <label class="block"><span class="block text-sm font-medium text-slate-700 mb-1">Название *</span><input name="name" required maxlength="200" value="${escapeDirectoryHtml(p.name)}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"></label>
+          <label class="block"><span class="block text-sm font-medium text-slate-700 mb-1">Подразделение</span><select name="department_id" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"><option value="">Не задано</option>${departments.map(function(d) { return '<option value="' + d.id + '" ' + (Number(p.department_id) === Number(d.id) ? 'selected' : '') + '>' + escapeDirectoryHtml(d.name) + '</option>'; }).join('')}</select></label>
+          <div class="space-y-2 rounded-lg border border-slate-200 p-3"><div class="text-sm font-medium text-slate-700">Типы работ по умолчанию</div><label class="flex items-center gap-2 text-sm"><input type="checkbox" name="can_do_ppr_default" ${p.can_do_ppr_default ? 'checked' : ''} class="rounded border-slate-300"> Может выполнять работы ППР</label><label class="flex items-center gap-2 text-sm"><input type="checkbox" name="can_duty_default" ${p.can_duty_default ? 'checked' : ''} class="rounded border-slate-300"> Участвует в дежурствах</label></div>
+          <label class="block"><span class="block text-sm font-medium text-slate-700 mb-1">Примечание</span><textarea name="notes" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">${escapeDirectoryHtml(p.notes || '')}</textarea></label>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="is_active" ${p.is_active !== false ? 'checked' : ''} class="rounded border-slate-300"> Должность активна</label>
+          <div class="flex justify-end gap-2 border-t pt-3"><button type="button" id="directory-position-cancel" class="rounded-lg border px-4 py-2 text-sm">Отмена</button><button type="submit" id="directory-position-save" class="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white">Сохранить</button></div>
+        </form>`;
+      openModal();
+      const form = $('#directory-position-form');
+      $('#directory-position-cancel').onclick = closeModal;
+      form.onsubmit = async function(event) {
+        event.preventDefault();
+        const save = $('#directory-position-save');
+        save.disabled = true; save.textContent = 'Сохранение…';
+        const departmentValue = form.elements.department_id.value;
+        const payload = { name: form.elements.name.value.trim(), department_id: departmentValue ? Number(departmentValue) : null, can_do_ppr_default: form.elements.can_do_ppr_default.checked, can_duty_default: form.elements.can_duty_default.checked, notes: form.elements.notes.value.trim() || null, is_active: form.elements.is_active.checked };
+        try {
+          await api(editing ? '/api/positions/' + p.id : '/api/positions', { method: editing ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
+          closeModal(); toast(editing ? 'Должность обновлена' : 'Должность создана', 'success'); await loadPage('directories');
+        } catch (e) { toast(e.message || 'Не удалось сохранить должность', 'error'); save.disabled = false; save.textContent = 'Сохранить'; }
+      };
+    }
+    async function editPosition(id) {
+      try {
+        const positions = await api('/api/positions?active_only=false');
+        const position = positions.find(function(item) { return Number(item.id) === Number(id); });
+        if (!position) throw new Error('Должность не найдена');
+        await openPositionForm(position);
+      } catch (e) { toast(e.message || 'Не удалось загрузить должность', 'error'); }
+    }
+
     async function openDepartmentSettings(departmentId) {
       try {
         const [departments, templates] = await Promise.all([
@@ -1528,28 +1659,10 @@
       }
     }
 
-    async function addDepartment() {
-      const name = prompt('Название подразделения:');
-      if (!name) return;
-      try {
-        await api('/api/departments', { method: 'POST', body: JSON.stringify({ name }) });
-        loadPage('directories');
-      } catch (e) { alert(e.message); }
-    }
+    async function addDepartment() { await openDepartmentForm(null); }
     async function addPosition() {
-      const name = prompt('Название должности:');
-      if (!name) return;
-      const deps = await api('/api/departments');
-      const deptName = prompt('Подразделение (название или пусто):\n' + deps.map(d => d.name).join('\n'));
-      let department_id = null;
-      if (deptName) {
-        const d = deps.find(x => x.name === deptName.trim());
-        if (d) department_id = d.id;
-      }
-      try {
-        await api('/api/positions', { method: 'POST', body: JSON.stringify({ name, department_id, can_do_ppr_default: true, can_duty_default: true }) });
-        loadPage('directories');
-      } catch (e) { alert(e.message); }
+      try { await openPositionForm(null); }
+      catch (e) { toast(e.message || 'Не удалось открыть форму должности', 'error'); }
     }
 
 
