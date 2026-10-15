@@ -75,6 +75,31 @@ def migrate_daily_checklist_column():
     except Exception as e:
         print(f"⚠ migrate_daily_checklist_column: {e}")
 
+def migrate_ppr_direction_columns():
+    """work_direction у шаблонов, ppr_specialty у users."""
+    try:
+        insp = inspect(engine)
+        tables = insp.get_table_names()
+        with engine.begin() as conn:
+            if "ppr_templates" in tables:
+                cols = {c["name"] for c in insp.get_columns("ppr_templates")}
+                if "work_direction" not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE ppr_templates ADD COLUMN work_direction VARCHAR(40) DEFAULT 'network_engineer'"
+                    ))
+                    print("✓ ppr_templates.work_direction")
+            if "users" in tables:
+                cols = {c["name"] for c in insp.get_columns("users")}
+                if "ppr_specialty" not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE users ADD COLUMN ppr_specialty VARCHAR(40)"
+                    ))
+                    print("✓ users.ppr_specialty")
+    except Exception as e:
+        print(f"⚠ migrate_ppr_direction_columns: {e}")
+
+
 # Авто-миграция при импорте модуля (после create_all в startup тоже безопасно)
 migrate_user_fio_columns()
 migrate_daily_checklist_column()
+migrate_ppr_direction_columns()
