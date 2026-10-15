@@ -890,18 +890,26 @@ def duty_today(db: Session = Depends(get_db)):
 
 @app.post("/api/duties", response_model=schemas.DutyOut)
 def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    shift = (data.shift or "day").strip().lower()
+    if shift not in {"day", "night", "full"}:
+        raise HTTPException(422, "Смена должна быть day, night или full")
     staff = db.query(User).filter(User.id == data.user_id).first()
     if not staff:
         raise HTTPException(404, "Сотрудник не найден")
-    # один основной дежурный на день — обновляем если уже есть
-    existing = db.query(DutySchedule).filter(DutySchedule.duty_date == data.duty_date, DutySchedule.shift == data.shift).first()
+    if not staff.is_active or not staff.can_duty:
+        raise HTTPException(422, "Назначить можно только активного сотрудника с правом дежурства")
+    # График единый для всей организации: подразделение сотрудника не ограничивает охват дежурства.
+    existing = db.query(DutySchedule).filter(
+        DutySchedule.duty_date == data.duty_date,
+        DutySchedule.shift == shift,
+    ).first()
     if existing:
         existing.user_id = data.user_id
         existing.notes = data.notes
         db.commit()
         db.refresh(existing)
         return existing
-    d = DutySchedule(duty_date=data.duty_date, user_id=data.user_id, shift=data.shift, notes=data.notes)
+    d = DutySchedule(duty_date=data.duty_date, user_id=data.user_id, shift=shift, notes=data.notes)
     db.add(d)
     db.commit()
     db.refresh(d)
@@ -910,19 +918,28 @@ def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db
 
 @app.post("/api/duties/bulk")
 def create_duties_bulk(data: schemas.DutyBulkCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    shift = (data.shift or "day").strip().lower()
+    if shift not in {"day", "night", "full"}:
+        raise HTTPException(422, "Смена должна быть day, night или full")
     staff = db.query(User).filter(User.id == data.user_id).first()
     if not staff:
         raise HTTPException(404, "Сотрудник не найден")
+    if not staff.is_active or not staff.can_duty:
+        raise HTTPException(422, "Назначить можно только активного сотрудника с правом дежурства")
+    dates = sorted(set(data.dates))
     created = 0
     updated = 0
-    for d in data.dates:
-        existing = db.query(DutySchedule).filter(DutySchedule.duty_date == d, DutySchedule.shift == data.shift).first()
+    for duty_date in dates:
+        existing = db.query(DutySchedule).filter(
+            DutySchedule.duty_date == duty_date,
+            DutySchedule.shift == shift,
+        ).first()
         if existing:
             existing.user_id = data.user_id
             existing.notes = data.notes
             updated += 1
         else:
-            db.add(DutySchedule(duty_date=d, user_id=data.user_id, shift=data.shift, notes=data.notes))
+            db.add(DutySchedule(duty_date=duty_date, user_id=data.user_id, shift=shift, notes=data.notes))
             created += 1
     db.commit()
     return {"created": created, "updated": updated, "message": f"Создано {created}, обновлено {updated}"}
