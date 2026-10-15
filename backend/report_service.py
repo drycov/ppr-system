@@ -7,7 +7,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session, joinedload
 
-from models import Object, PPRPlan, PPRTemplate
+from models import Department, Object, PPRPlan, PPRTemplate
 
 
 THIN = Border(*( [Side(style="thin")] * 4 ))
@@ -35,12 +35,17 @@ def export_ppr_period_report(
     to_date: date,
     object_type: str | None = None,
     work_direction: str | None = None,
+    department_id: int | None = None,
 ) -> bytes:
     query = db.query(PPRPlan).options(
         joinedload(PPRPlan.object), joinedload(PPRPlan.template), joinedload(PPRPlan.assignee_user)
     ).filter(PPRPlan.planned_date >= from_date, PPRPlan.planned_date <= to_date)
+    if object_type or department_id is not None:
+        query = query.join(PPRPlan.object)
     if object_type:
-        query = query.join(PPRPlan.object).filter(Object.object_type == object_type)
+        query = query.filter(Object.object_type == object_type)
+    if department_id is not None:
+        query = query.filter(Object.department_id == department_id)
     if work_direction:
         query = query.join(PPRPlan.template).filter(PPRTemplate.work_direction == work_direction)
     plans = query.order_by(PPRPlan.planned_date, PPRPlan.id).all()
@@ -49,7 +54,9 @@ def export_ppr_period_report(
     ws = wb.active
     ws.title = "Задачи ППР"
     ws.merge_cells("A1:K1")
-    ws["A1"] = f"ОТЧЁТ О ВЫПОЛНЕНИИ ППР: {from_date:%d.%m.%Y} — {to_date:%d.%m.%Y}"
+    department = db.query(Department).filter(Department.id == department_id).first() if department_id is not None else None
+    period_title = f"Подразделение: {department.name} | " if department else ""
+    ws["A1"] = f"ОТЧЁТ О ВЫПОЛНЕНИИ ППР: {period_title}{from_date:%d.%m.%Y} — {to_date:%d.%m.%Y}"
     ws["A1"].font = TITLE_FONT
     ws["A1"].alignment = Alignment(horizontal="center")
     headers = ["№", "Плановая дата", "Фактическая дата", "Объект", "Адрес", "Направление",
@@ -108,6 +115,8 @@ def export_ppr_period_report(
     summary["A1"].font = TITLE_FONT
     summary["A2"] = "Период"
     summary["B2"] = f"{from_date:%d.%m.%Y} — {to_date:%d.%m.%Y}"
+    summary["A3"] = "Подразделение"
+    summary["B3"] = department.name if department else "Все подразделения"
     summary["A4"] = "Показатель"
     summary["B4"] = "Количество"
     _header(summary, 4, 2)
