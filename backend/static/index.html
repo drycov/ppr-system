@@ -361,86 +361,84 @@
     // ----- Dashboard -----
     async function renderDashboard(el) {
       const [stats, byType, completion] = await Promise.all([
-        api('/api/dashboard'),
-        api('/api/stats/by-type'),
-        api('/api/stats/completion')
+        api('/api/dashboard'), api('/api/stats/by-type'), api('/api/stats/completion')
       ]);
+      const fmt = v => Number(v || 0).toLocaleString('ru-RU');
+      const percent = Math.max(0, Math.min(100, Number(stats.completion_percent) || 0));
+      const total = Number(completion.done || 0) + Number(completion.planned || 0) + Number(completion.overdue || 0);
 
-      el.innerHTML = `
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div class="card bg-white rounded-xl p-5 border border-slate-100">
-            <div class="text-sm text-slate-500 mb-1">Всего объектов</div>
-            <div class="text-3xl font-bold text-slate-800">${stats.total_objects}</div>
-            <div class="text-xs text-slate-400 mt-1">активных: ${stats.active_objects}</div>
-          </div>
-          <div class="card bg-white rounded-xl p-5 border border-slate-100">
-            <div class="text-sm text-slate-500 mb-1">Выполнено ППР</div>
-            <div class="text-3xl font-bold text-teal-700">${stats.done_ppr}</div>
-            <div class="text-xs text-slate-400 mt-1">${stats.completion_percent}% от плана</div>
-          </div>
-          <div class="card bg-white rounded-xl p-5 border border-slate-100">
-            <div class="text-sm text-slate-500 mb-1">Запланировано</div>
-            <div class="text-3xl font-bold text-amber-600">${stats.planned_ppr}</div>
-            <div class="text-xs text-red-500 mt-1">просрочено: ${stats.overdue_ppr}</div>
-          </div>
-          <div class="card bg-white rounded-xl p-5 border border-slate-100">
-            <div class="text-sm text-slate-500 mb-1">Ежедневный контроль</div>
-            <div class="text-3xl font-bold text-slate-800">${stats.daily_checks_this_month}</div>
-            <div class="text-xs text-slate-400 mt-1">записей в этом месяце</div>
-          </div>
+      el.innerHTML = \`
+        <div class="mx-auto max-w-[1600px] space-y-6">
+          <section class="relative overflow-hidden rounded-2xl bg-slate-950 px-6 py-7 text-white shadow-sm sm:px-8">
+            <div class="pointer-events-none absolute -right-12 -top-24 h-64 w-64 rounded-full bg-teal-500/20 blur-3xl"></div>
+            <div class="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div class="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-teal-200"><span class="h-1.5 w-1.5 rounded-full bg-teal-400"></span> Оперативная сводка</div>
+                <h2 class="text-2xl font-semibold tracking-tight sm:text-3xl">Планово-предупредительные работы</h2>
+                <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Состояние объектов, выполнение плана и быстрый доступ к ежедневным операциям ОСС.</p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button onclick="document.querySelector('[data-page=plans]').click()" class="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-teal-400"><i data-lucide="clipboard-list" class="h-4 w-4"></i> Задачи ППР</button>
+                <button onclick="exportExcelNow()" class="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i> Отчёт за месяц</button>
+              </div>
+            </div>
+            <div class="relative mt-7 grid grid-cols-2 gap-3 border-t border-white/10 pt-5 sm:grid-cols-4">
+              <div><div class="text-xs text-slate-400">Всего объектов</div><div class="mt-1 text-xl font-semibold">\${fmt(stats.total_objects)}</div></div>
+              <div><div class="text-xs text-slate-400">Активных объектов</div><div class="mt-1 text-xl font-semibold">\${fmt(stats.active_objects)}</div></div>
+              <div><div class="text-xs text-slate-400">Выполнено работ</div><div class="mt-1 text-xl font-semibold">\${fmt(stats.done_ppr)}</div></div>
+              <div><div class="text-xs text-slate-400">Контроль за месяц</div><div class="mt-1 text-xl font-semibold">\${fmt(stats.daily_checks_this_month)}</div></div>
+            </div>
+          </section>
+
+          <section>
+            <div class="mb-3"><h3 class="text-base font-semibold text-slate-900">Ключевые показатели</h3><p class="mt-1 text-xs text-slate-500">Текущие показатели системы ППР</p></div>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div class="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div class="flex justify-between gap-3"><div><div class="text-sm font-medium text-slate-500">Объекты в системе</div><div class="mt-3 text-3xl font-semibold text-slate-900">\${fmt(stats.total_objects)}</div><div class="mt-2 text-xs text-slate-500">Активных: \${fmt(stats.active_objects)}</div></div><span class="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-700"><i data-lucide="building-2" class="h-5 w-5"></i></span></div><div class="absolute inset-x-0 bottom-0 h-1 bg-slate-300"></div></div>
+              <div class="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div class="flex justify-between gap-3"><div><div class="text-sm font-medium text-slate-500">Выполнено работ</div><div class="mt-3 text-3xl font-semibold text-slate-900">\${fmt(stats.done_ppr)}</div><div class="mt-2 text-xs text-teal-700">\${percent}% от плана</div></div><span class="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-50 text-teal-700"><i data-lucide="check-circle-2" class="h-5 w-5"></i></span></div><div class="absolute inset-x-0 bottom-0 h-1 bg-teal-500"></div></div>
+              <div class="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div class="flex justify-between gap-3"><div><div class="text-sm font-medium text-slate-500">Запланировано</div><div class="mt-3 text-3xl font-semibold text-slate-900">\${fmt(stats.planned_ppr)}</div><div class="mt-2 text-xs text-slate-500">Ожидают выполнения</div></div><span class="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><i data-lucide="calendar-clock" class="h-5 w-5"></i></span></div><div class="absolute inset-x-0 bottom-0 h-1 bg-amber-400"></div></div>
+              <div class="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div class="flex justify-between gap-3"><div><div class="text-sm font-medium text-slate-500">Просрочено</div><div class="mt-3 text-3xl font-semibold text-slate-900">\${fmt(stats.overdue_ppr)}</div><div class="mt-2 text-xs text-rose-700">Требуют внимания</div></div><span class="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-700"><i data-lucide="alert-triangle" class="h-5 w-5"></i></span></div><div class="absolute inset-x-0 bottom-0 h-1 bg-rose-500"></div></div>
+            </div>
+          </section>
+
+          <section class="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <div class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm xl:col-span-2">
+              <div class="flex items-start justify-between gap-3"><div><h3 class="font-semibold text-slate-900">Выполнение плана ППР</h3><p class="mt-1 text-xs text-slate-500">Сводка по статусам работ</p></div><span class="rounded-lg bg-teal-50 px-3 py-1.5 text-sm font-semibold text-teal-700">\${percent}%</span></div>
+              <div class="mt-6 flex items-end justify-between gap-4"><div><div class="text-3xl font-semibold tracking-tight text-slate-900">\${fmt(completion.done)}</div><div class="mt-1 text-xs text-slate-500">выполнено</div></div><div class="text-right"><div class="text-lg font-semibold text-slate-700">\${fmt(total)}</div><div class="mt-1 text-xs text-slate-500">задач в сводке</div></div></div>
+              <div class="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-teal-500 transition-all" style="width:\${percent}%"></div></div>
+              <div class="mt-4 grid grid-cols-3 gap-3">
+                <div class="rounded-xl bg-teal-50/80 p-3"><div class="text-xs text-teal-700">Выполнено</div><div class="mt-1 text-lg font-semibold text-teal-800">\${fmt(completion.done)}</div></div>
+                <div class="rounded-xl bg-amber-50/80 p-3"><div class="text-xs text-amber-700">Запланировано</div><div class="mt-1 text-lg font-semibold text-amber-800">\${fmt(completion.planned)}</div></div>
+                <div class="rounded-xl bg-rose-50/80 p-3"><div class="text-xs text-rose-700">Просрочено</div><div class="mt-1 text-lg font-semibold text-rose-800">\${fmt(completion.overdue)}</div></div>
+              </div>
+            </div>
+            <div class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm"><h3 class="font-semibold text-slate-900">Структура объектов</h3><p class="mt-1 text-xs text-slate-500">Распределение по типам</p><div class="mt-4"><canvas id="chart-types" height="210"></canvas></div></div>
+          </section>
+
+          <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm"><h3 class="font-semibold text-slate-900">Статусы выполнения</h3><p class="mt-1 text-xs text-slate-500">Сравнение выполненных, плановых и просроченных задач</p><div class="mt-4"><canvas id="chart-status" height="145"></canvas></div></div>
+            <div class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+              <h3 class="font-semibold text-slate-900">Быстрые действия</h3><p class="mt-1 text-xs text-slate-500">Часто используемые операции</p>
+              <div class="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button onclick="document.querySelector('[data-page=daily]').click()" class="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition hover:border-teal-300 hover:bg-teal-50/50"><span class="flex h-10 w-10 items-center justify-center rounded-lg bg-teal-50 text-teal-700"><i data-lucide="calendar-check" class="h-5 w-5"></i></span><span><span class="block text-sm font-medium text-slate-800">Ежедневный контроль</span><span class="mt-0.5 block text-xs text-slate-500">Заполнить контроль</span></span></button>
+                <button onclick="generatePlansNow()" class="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition hover:border-indigo-300 hover:bg-indigo-50/50"><span class="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700"><i data-lucide="calendar-plus" class="h-5 w-5"></i></span><span><span class="block text-sm font-medium text-slate-800">Сформировать план</span><span class="mt-0.5 block text-xs text-slate-500">Создать задачи на месяц</span></span></button>
+                <button onclick="exportExcelPeriodNow()" class="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50/50"><span class="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><i data-lucide="file-spreadsheet" class="h-5 w-5"></i></span><span><span class="block text-sm font-medium text-slate-800">Отчёт за период</span><span class="mt-0.5 block text-xs text-slate-500">Выбрать даты выгрузки</span></span></button>
+                <button onclick="importExcelNow()" class="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/50"><span class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-700"><i data-lucide="file-up" class="h-5 w-5"></i></span><span><span class="block text-sm font-medium text-slate-800">Импорт объектов</span><span class="mt-0.5 block text-xs text-slate-500">Загрузить из Excel</span></span></button>
+                <button onclick="document.querySelector('[data-page=regulations]').click()" class="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition hover:border-slate-300 hover:bg-slate-50 sm:col-span-2"><span class="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700"><i data-lucide="book-open" class="h-5 w-5"></i></span><span><span class="block text-sm font-medium text-slate-800">Регламент ППР</span><span class="mt-0.5 block text-xs text-slate-500">Нормативные материалы</span></span></button>
+              </div>
+            </div>
+          </section>
         </div>
+      \`;
 
-        <div class="grid lg:grid-cols-2 gap-6">
-          <div class="bg-white rounded-xl border border-slate-100 p-5">
-            <h3 class="font-semibold mb-4">Объекты по типам</h3>
-            <canvas id="chart-types" height="200"></canvas>
-          </div>
-          <div class="bg-white rounded-xl border border-slate-100 p-5">
-            <h3 class="font-semibold mb-4">Статус выполнения ППР</h3>
-            <canvas id="chart-status" height="200"></canvas>
-          </div>
-        </div>
-
-        <div class="mt-6 bg-white rounded-xl border border-slate-100 p-5">
-          <h3 class="font-semibold mb-3">Быстрые действия</h3>
-          <div class="flex flex-wrap gap-3">
-            <button onclick="document.querySelector('[data-page=plans]').click()" class="px-4 py-2 bg-teal-700 text-white rounded-lg text-sm hover:bg-teal-800">Открыть задачи ППР</button>
-            <button onclick="document.querySelector('[data-page=daily]').click()" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900">Сдать ежедневный контроль</button>
-            <button onclick="generatePlansNow()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">Сгенерировать план (месяц)</button>
-            <button onclick="exportExcelNow()" class="px-4 py-2 bg-emerald-700 text-white rounded-lg text-sm hover:bg-emerald-800">Отчёт за месяц</button>
-            <button onclick="exportExcelPeriodNow()" class="px-4 py-2 bg-emerald-800 text-white rounded-lg text-sm hover:bg-emerald-900">Отчёт за период</button>
-            <button onclick="importExcelNow()" class="px-4 py-2 bg-blue-700 text-white rounded-lg text-sm hover:bg-blue-800">Импорт Excel объектов</button>
-            <button onclick="document.querySelector('[data-page=regulations]').click()" class="px-4 py-2 border border-slate-300 rounded-lg text-sm hover:bg-slate-50">Регламент</button>
-            <button onclick="doLogout()" class="px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50">Выйти</button>
-          </div>
-        </div>
-      `;
-
-      // Charts
-      const typeLabels = Object.keys(byType).map(typeLabel);
-      const typeData = Object.values(byType);
       new Chart($('#chart-types'), {
         type: 'doughnut',
-        data: {
-          labels: typeLabels,
-          datasets: [{ data: typeData, backgroundColor: ['#0f766e', '#14b8a6', '#5eead4', '#99f6e4', '#ccfbf1'] }]
-        },
-        options: { plugins: { legend: { position: 'bottom' } } }
+        data: { labels: Object.keys(byType).map(typeLabel), datasets: [{ data: Object.values(byType), backgroundColor: ['#0f766e','#14b8a6','#5eead4','#99f6e4','#ccfbf1','#64748b','#818cf8','#f59e0b'], borderWidth: 0, hoverOffset: 5 }] },
+        options: { cutout: '68%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle', padding: 16, boxWidth: 8, font: { size: 11 } } } } }
       });
-
       new Chart($('#chart-status'), {
         type: 'bar',
-        data: {
-          labels: ['Выполнено', 'Запланировано', 'Просрочено'],
-          datasets: [{
-            data: [completion.done, completion.planned, completion.overdue],
-            backgroundColor: ['#10b981', '#f59e0b', '#ef4444']
-          }]
-        },
-        options: {
-          plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true } }
-        }
+        data: { labels: ['Выполнено','Запланировано','Просрочено'], datasets: [{ data: [completion.done,completion.planned,completion.overdue], backgroundColor: ['#0d9488','#f59e0b','#f43f5e'], borderRadius: 7, maxBarThickness: 54 }] },
+        options: { plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: '#64748b', font: { size: 11 } } }, y: { beginAtZero: true, grid: { color: '#f1f5f9' }, border: { display: false }, ticks: { precision: 0, color: '#94a3b8', font: { size: 10 } } } } }
       });
     }
 
