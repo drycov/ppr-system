@@ -56,6 +56,8 @@ class Object(Base):
     cameras_count = Column(Integer, default=0)
     status = Column(String(30), default="active")  # active, relocated, decommissioned
     responsible_default = Column(String(150))
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
+    department = relationship("Department", back_populates="objects")
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -102,6 +104,7 @@ class Department(Base):
 
     positions = relationship("Position", back_populates="department")
     users = relationship("User", back_populates="department")
+    objects = relationship("Object", back_populates="department")
 
 
 class Position(Base):
