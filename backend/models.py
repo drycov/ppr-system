@@ -189,13 +189,15 @@ class DailyCheck(Base):
     id = Column(Integer, primary_key=True, index=True)
     check_date = Column(Date, index=True)
     engineer = Column(String(150))
-    monitoring_dashboard = Column(String(20), default="ok")  # ok / issues
+    monitoring_dashboard = Column(String(20), default="ok")  # ok / issues / skip
     critical_services = Column(String(20), default="ok")
     logs_security = Column(String(20), default="ok")
     config_backups = Column(String(20), default="ok")
     channel_utilization = Column(String(20), default="ok")
     ups_status = Column(String(20), default="ok")
     incidents_logged = Column(Boolean, default=True)
+    # Чек-лист: [{code, name, done, status, note}, ...]
+    checklist = Column(JSON, default=list)
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
