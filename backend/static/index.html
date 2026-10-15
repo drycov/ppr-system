@@ -596,13 +596,28 @@
       }
     }
 
-    function openNewPlanModal() {
+    async function openNewPlanModal() {
+      const [objects, departments] = await Promise.all([api('/api/objects?limit=500'), api('/api/departments?active_only=true')]);
       $('#modal-title').textContent = 'Новая задача ППР';
       $('#modal-body').innerHTML = `
         <form id="new-plan-form" class="space-y-4">
           <div>
             <label class="block text-sm font-medium mb-1">Название</label>
             <input name="title" class="w-full border rounded-lg px-3 py-2 text-sm" required placeholder="ППР ИНТ-01 — октябрь">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Подразделение</label>
+            <select name="department_id" class="w-full border rounded-lg px-3 py-2 text-sm" required>
+              <option value="">Выберите подразделение</option>
+              ${departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Объект</label>
+            <select name="object_id" class="w-full border rounded-lg px-3 py-2 text-sm">
+              <option value="">Без объекта</option>
+              ${objects.map(o => `<option value="${o.id}">${o.code} — ${o.address || o.name || ''}</option>`).join('')}
+            </select>
           </div>
           <div>
             <label class="block text-sm font-medium mb-1">Дата плана</label>
@@ -627,6 +642,8 @@
             method: 'POST',
             body: JSON.stringify({
               title: fd.get('title'),
+              department_id: Number(fd.get('department_id')),
+              object_id: fd.get('object_id') ? Number(fd.get('object_id')) : null,
               planned_date: fd.get('planned_date'),
               responsible: fd.get('responsible'),
               status: 'planned'
