@@ -10,3 +10,7 @@ passlib[bcrypt]>=1.7.4
 reportlab>=4.0.0
 aiofiles>=24.1.0
 python-dateutil>=2.9.0
+
+# ФИО: парсинг + пол + склонение (офлайн)
+russiannames>=2.0.0
+pytrovich>=0.2.0
