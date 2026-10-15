@@ -1,8 +1,8 @@
-"""Автоматическое планирование ППР по периодичности"""
+"""Автоматическое планирование ППР по периодичности и графику дежурств"""
 from datetime import date, timedelta
 from calendar import monthrange
 from sqlalchemy.orm import Session
-from models import Object, PPRTemplate, PPRPlan
+from models import Object, PPRTemplate, PPRPlan, User, DutySchedule
 
 
 PERIOD_DAYS = {
@@ -15,28 +15,48 @@ PERIOD_DAYS = {
 }
 
 
-def next_planned_date(periodicity: str, from_date: date = None) -> date:
-    """Ближайшая плановая дата от from_date (по умолчанию сегодня)"""
-    base = from_date or date.today()
-    days = PERIOD_DAYS.get(periodicity, 30)
-    if periodicity == "monthly":
-        # 1-е число следующего месяца
-        if base.month == 12:
-            return date(base.year + 1, 1, 1)
-        return date(base.year, base.month + 1, 1)
-    if periodicity == "quarterly":
-        q = (base.month - 1) // 3
-        next_q_month = (q + 1) * 3 + 1
-        if next_q_month > 12:
-            return date(base.year + 1, 1, 1)
-        return date(base.year, next_q_month, 1)
-    if periodicity in ("semi_annual", "twice_year"):
-        if base.month < 7:
-            return date(base.year, 7, 1)
-        return date(base.year + 1, 1, 1)
-    if periodicity == "annual":
-        return date(base.year + 1, 1, 1)
-    return base + timedelta(days=days)
+def get_duty_user(db: Session, on_date: date) -> User | None:
+    """Кто дежурит в указанный день (первый по смене day/full)."""
+    duty = (
+        db.query(DutySchedule)
+        .filter(DutySchedule.duty_date == on_date)
+        .order_by(DutySchedule.id)
+        .first()
+    )
+    if duty:
+        return duty.user
+    return None
+
+
+def get_round_robin_engineer(db: Session, day_index: int) -> User | None:
+    """Распределение по кругу среди активных исполнителей ППР."""
+    engineers = (
+        db.query(User)
+        .filter(User.is_active == True, User.can_do_ppr == True, User.role.in_(["engineer", "head", "admin"]))
+        .order_by(User.id)
+        .all()
+    )
+    if not engineers:
+        return None
+    return engineers[day_index % len(engineers)]
+
+
+def resolve_assignee(db: Session, planned: date, obj_index: int) -> tuple:
+    """
+    Назначить исполнителя:
+    1) дежурный на planned_date
+    2) иначе round-robin по инженерам
+    Возвращает (User|None, assigned_by_duty: bool, responsible_str)
+    """
+    duty_user = get_duty_user(db, planned)
+    if duty_user:
+        return duty_user, True, duty_user.full_name or duty_user.username
+
+    eng = get_round_robin_engineer(db, obj_index)
+    if eng:
+        return eng, False, eng.full_name or eng.username
+
+    return None, False, "Инженер ОСС"
 
 
 def generate_plans_for_period(
@@ -45,17 +65,17 @@ def generate_plans_for_period(
     month: int,
     object_types: list = None,
     only_without_plan: bool = True,
+    prefer_duty: bool = True,
 ) -> dict:
     """
-    Создаёт задачи ППР на указанный месяц для объектов,
-    у которых есть подходящий шаблон по типу и периодичности.
+    Создаёт задачи ППР на указанный месяц.
+    Исполнитель: дежурный на дату плана, иначе round-robin.
     """
     created = 0
     skipped = 0
-    errors = []
+    by_duty = 0
 
     templates = db.query(PPRTemplate).filter(PPRTemplate.is_active == True).all()
-    # Группируем шаблоны по object_type
     templates_by_type = {}
     for t in templates:
         for ot in (t.object_types or []):
@@ -64,35 +84,28 @@ def generate_plans_for_period(
     q = db.query(Object).filter(Object.status == "active")
     if object_types:
         q = q.filter(Object.object_type.in_(object_types))
-    objects = q.all()
+    objects = q.order_by(Object.id).all()
 
     month_start = date(year, month, 1)
     month_end = date(year, month, monthrange(year, month)[1])
 
-    for obj in objects:
+    for idx, obj in enumerate(objects):
         relevant = templates_by_type.get(obj.object_type, [])
         if not relevant:
-            # Для камер — шаблоны 7.5-7.8 / monthly
             if obj.object_type in ("camera_integration", "ovn"):
                 relevant = [t for t in templates if t.code in ("7.5", "7.6", "7.7", "7.8") or t.periodicity == "monthly"]
             elif obj.object_type == "voles":
-                relevant = [t for t in templates if "11" in t.code or t.periodicity == "twice_year"]
+                relevant = [t for t in templates if "11" in (t.code or "") or t.periodicity == "twice_year"]
 
         if not relevant:
             continue
 
-        # Берём один «главный» шаблон (первый monthly / подходящий)
         template = relevant[0]
-        # Для камер — объединённая задача с видами 7.5-7.8
-        work_codes = []
         if obj.object_type in ("camera_integration", "ovn"):
-            work_codes = ["7.5", "7.6", "7.7", "7.8"]
             title = f"ППР {obj.code} — {month:02d}.{year}"
         else:
-            work_codes = template.work_items or [template.code]
             title = f"{template.name} — {obj.code}"
 
-        # Проверяем, нет ли уже плана на этот месяц
         if only_without_plan:
             existing = db.query(PPRPlan).filter(
                 PPRPlan.object_id == obj.id,
@@ -104,35 +117,47 @@ def generate_plans_for_period(
                 skipped += 1
                 continue
 
-        # Распределяем даты внутри месяца (чтобы не все в один день)
         day = min(5 + (obj.id % 20), month_end.day)
         planned = date(year, month, day)
+
+        if prefer_duty:
+            user, by_d, responsible = resolve_assignee(db, planned, idx)
+        else:
+            user, by_d, responsible = resolve_assignee(db, planned, idx)
+            # still uses duty first
+
+        # fallback to object's default responsible if no staff
+        if not user and obj.responsible_default:
+            responsible = obj.responsible_default
 
         plan = PPRPlan(
             object_id=obj.id,
             template_id=template.id,
+            assignee_id=user.id if user else None,
             title=title,
             planned_date=planned,
-            responsible=obj.responsible_default or "Инженер ОСС",
+            responsible=responsible,
             status="planned",
             work_types_done=[],
-            comment=None,
+            assigned_by_duty=by_d,
         )
         db.add(plan)
         created += 1
+        if by_d:
+            by_duty += 1
 
     db.commit()
     return {
         "created": created,
         "skipped": skipped,
+        "assigned_by_duty": by_duty,
         "year": year,
         "month": month,
-        "message": f"Создано {created} задач, пропущено (уже есть) {skipped}",
+        "message": f"Создано {created} задач (из них по дежурству: {by_duty}), пропущено: {skipped}",
     }
 
 
 def mark_overdue(db: Session) -> int:
-    """Помечает просроченные задачи"""
     today = date.today()
     plans = db.query(PPRPlan).filter(
         PPRPlan.status == "planned",
@@ -142,3 +167,24 @@ def mark_overdue(db: Session) -> int:
         p.status = "overdue"
     db.commit()
     return len(plans)
+
+
+def reassign_plans_by_duty(db: Session, year: int, month: int) -> dict:
+    """Переназначить уже созданные плановые задачи по актуальному графику дежурств."""
+    month_start = date(year, month, 1)
+    month_end = date(year, month, monthrange(year, month)[1])
+    plans = db.query(PPRPlan).filter(
+        PPRPlan.planned_date >= month_start,
+        PPRPlan.planned_date <= month_end,
+        PPRPlan.status.in_(["planned", "overdue"]),
+    ).all()
+    updated = 0
+    for p in plans:
+        user = get_duty_user(db, p.planned_date)
+        if user:
+            p.assignee_id = user.id
+            p.responsible = user.full_name or user.username
+            p.assigned_by_duty = True
+            updated += 1
+    db.commit()
+    return {"updated": updated, "message": f"Переназначено по графику дежурств: {updated}"}

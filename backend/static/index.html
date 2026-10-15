@@ -76,6 +76,12 @@
         <a href="#" data-page="templates" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
           <i data-lucide="list-checks" class="w-4 h-4"></i> Шаблоны работ
         </a>
+        <a href="#" data-page="staff" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="users" class="w-4 h-4"></i> Сотрудники
+        </a>
+        <a href="#" data-page="duties" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="calendar-days" class="w-4 h-4"></i> Дежурства
+        </a>
       </nav>
       <div class="p-4 border-t border-slate-100 text-xs text-slate-500">
         <div class="font-medium text-slate-700">ТОО «Satory Company ltd»</div>
@@ -225,6 +231,8 @@
         else if (page === 'daily') await renderDaily(content);
         else if (page === 'regulations') await renderRegulations(content);
         else if (page === 'templates') await renderTemplates(content);
+        else if (page === 'staff') await renderStaff(content);
+        else if (page === 'duties') await renderDuties(content);
       } catch (e) {
         content.innerHTML = `<div class="bg-red-50 text-red-700 p-4 rounded-lg">Ошибка: ${e.message}</div>`;
       }
@@ -648,7 +656,130 @@
     }
 
     
-    async function generatePlansNow() {
+    
+    async function renderStaff(el) {
+      const staff = await api('/api/staff?active_only=false');
+      el.innerHTML = `
+        <div class="flex justify-between mb-4">
+          <p class="text-sm text-slate-500">Сотрудники ОСС — исполнители ППР и дежурные</p>
+          <button onclick="openStaffModal()" class="px-4 py-2 bg-teal-700 text-white rounded-lg text-sm">+ Добавить</button>
+        </div>
+        <div class="bg-white rounded-xl border overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-left"><tr>
+              <th class="px-4 py-3">ФИО</th><th class="px-4 py-3">Логин</th><th class="px-4 py-3">Должность</th>
+              <th class="px-4 py-3">Роль</th><th class="px-4 py-3">ППР</th><th class="px-4 py-3">Дежурства</th>
+              <th class="px-4 py-3">Статус</th>
+            </tr></thead>
+            <tbody>
+              ${staff.map(s => `<tr class="table-row border-t">
+                <td class="px-4 py-3 font-medium">${s.full_name || '—'}</td>
+                <td class="px-4 py-3 font-mono text-xs">${s.username}</td>
+                <td class="px-4 py-3 text-xs">${s.position || '—'}</td>
+                <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${s.role}</span></td>
+                <td class="px-4 py-3">${s.can_do_ppr ? '✓' : '—'}</td>
+                <td class="px-4 py-3">${s.can_duty ? '✓' : '—'}</td>
+                <td class="px-4 py-3">${s.is_active ? '<span class="text-teal-700">активен</span>' : '<span class="text-slate-400">откл.</span>'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">Всего: ${staff.length}. Для добавления используйте API POST /api/staff или кнопку ниже.</p>
+        <button onclick="openStaffModal()" class="mt-2 px-3 py-1.5 border rounded-lg text-sm">Добавить сотрудника</button>`;
+    }
+    function openStaffModal() {
+      $('#modal-title').textContent = 'Новый сотрудник';
+      $('#modal-body').innerHTML = `
+        <form id="staff-form" class="space-y-3 text-sm">
+          <div><label class="block mb-1">Логин</label><input name="username" class="w-full border rounded-lg px-3 py-2" required></div>
+          <div><label class="block mb-1">Пароль</label><input name="password" type="password" value="eng" class="w-full border rounded-lg px-3 py-2"></div>
+          <div><label class="block mb-1">ФИО</label><input name="full_name" class="w-full border rounded-lg px-3 py-2" required></div>
+          <div><label class="block mb-1">Должность</label><input name="position" value="Инженер ОСС" class="w-full border rounded-lg px-3 py-2"></div>
+          <div><label class="block mb-1">Роль</label>
+            <select name="role" class="w-full border rounded-lg px-3 py-2">
+              <option value="engineer">engineer</option>
+              <option value="head">head</option>
+              <option value="admin">admin</option>
+            </select></div>
+          <div class="flex gap-4">
+            <label class="flex items-center gap-2"><input type="checkbox" name="can_do_ppr" checked> Участвует в ППР</label>
+            <label class="flex items-center gap-2"><input type="checkbox" name="can_duty" checked> Дежурства</label>
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 border rounded-lg">Отмена</button>
+            <button type="submit" class="px-4 py-2 bg-teal-700 text-white rounded-lg">Сохранить</button>
+          </div>
+        </form>`;
+      openModal();
+      $('#staff-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        try {
+          await api('/api/staff', { method: 'POST', body: JSON.stringify({
+            username: fd.get('username'), password: fd.get('password') || 'eng',
+            full_name: fd.get('full_name'), position: fd.get('position'), role: fd.get('role'),
+            can_do_ppr: fd.get('can_do_ppr') === 'on', can_duty: fd.get('can_duty') === 'on'
+          })});
+          closeModal(); loadPage('staff');
+        } catch (err) { alert(err.message); }
+      };
+    }
+
+    async function renderDuties(el) {
+      const now = new Date();
+      const y = now.getFullYear(), m = now.getMonth();
+      const from = y + '-' + String(m+1).padStart(2,'0') + '-01';
+      const lastDay = new Date(y, m+1, 0).getDate();
+      const to = y + '-' + String(m+1).padStart(2,'0') + '-' + String(lastDay).padStart(2,'0');
+      const [duties, staff, today] = await Promise.all([
+        api('/api/duties?from_date=' + from + '&to_date=' + to),
+        api('/api/staff?can_duty=true'),
+        api('/api/duties/today')
+      ]);
+      const dutyMap = {};
+      duties.forEach(d => { dutyMap[d.duty_date] = d; });
+      let calendar = '';
+      for (let d = 1; d <= lastDay; d++) {
+        const ds = y + '-' + String(m+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+        const duty = dutyMap[ds];
+        const name = duty && duty.user ? (duty.user.full_name || '') : '';
+        const isToday = ds === now.toISOString().slice(0,10);
+        calendar += '<div class="border rounded-lg p-2 text-xs ' + (isToday?'ring-2 ring-teal-600 ':'') + (duty?'bg-teal-50':'') + '">' +
+          '<div class="font-semibold mb-1">' + d + '</div>' +
+          '<div class="text-slate-600 truncate mb-1">' + (name || '—') + '</div>' +
+          '<select data-date="' + ds + '" class="duty-select mt-1 w-full border rounded text-xs py-0.5"><option value="">—</option>' +
+          staff.map(s => '<option value="' + s.id + '"' + (duty && duty.user_id===s.id?' selected':'') + '>' + (s.full_name||s.username) + '</option>').join('') +
+          '</select></div>';
+      }
+      el.innerHTML = `
+        <div class="mb-4 flex flex-wrap gap-3 items-center">
+          <div class="bg-teal-50 border border-teal-200 rounded-lg px-4 py-2 text-sm">
+            <span class="text-slate-500">Сегодня дежурит:</span>
+            <strong class="ml-1">${today.length ? today.map(t => t.full_name).join(', ') : 'не назначен'}</strong>
+          </div>
+          <button id="btn-reassign" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">Переназначить ППР по дежурствам</button>
+          <p class="text-xs text-slate-500 w-full">Исполнитель ППР = дежурный на дату задачи. Если дежурного нет — распределение по кругу среди инженеров.</p>
+        </div>
+        <div class="grid grid-cols-7 gap-2">${calendar}</div>`;
+      el.querySelectorAll('.duty-select').forEach(sel => {
+        sel.onchange = async () => {
+          if (!sel.value) return;
+          try {
+            await api('/api/duties', { method: 'POST', body: JSON.stringify({ duty_date: sel.dataset.date, user_id: parseInt(sel.value), shift: 'day' }) });
+          } catch (e) { alert(e.message); }
+        };
+      });
+      const btn = el.querySelector('#btn-reassign');
+      if (btn) btn.onclick = async () => {
+        if (!confirm('Переназначить плановые задачи месяца по графику дежурств?')) return;
+        try {
+          const r = await api('/api/planning/reassign-by-duty?year=' + y + '&month=' + (m+1), { method: 'POST' });
+          alert(r.message); loadPage('plans');
+        } catch (e) { alert(e.message); }
+      };
+    }
+
+async function generatePlansNow() {
       const n = new Date();
       if (!confirm('Создать задачи ППР на ' + (n.getMonth()+1) + '.' + n.getFullYear() + '?')) return;
       try {

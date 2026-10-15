@@ -68,14 +68,39 @@ class PPRTemplate(Base):
 
 
 class User(Base):
+    """Сотрудник ОСС / исполнитель ППР"""
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True)
     full_name = Column(String(150))
     role = Column(String(30), default="engineer")  # engineer, head, admin
+    position = Column(String(150), default="Инженер ОСС")  # должность
+    phone = Column(String(50), nullable=True)
+    email = Column(String(120), nullable=True)
     is_active = Column(Boolean, default=True)
+    can_do_ppr = Column(Boolean, default=True)  # участвует в ППР
+    can_duty = Column(Boolean, default=True)    # участвует в дежурствах
     hashed_password = Column(String(255))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    duties = relationship("DutySchedule", back_populates="user")
+    plans = relationship("PPRPlan", back_populates="assignee_user")
+
+
+class DutySchedule(Base):
+    """График дежурств: кто дежурит в какой день"""
+    __tablename__ = "duty_schedules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    duty_date = Column(Date, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    shift = Column(String(30), default="day")  # day / night / full
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="duties")
 
 
 class PPRPlan(Base):
@@ -85,19 +110,22 @@ class PPRPlan(Base):
     id = Column(Integer, primary_key=True, index=True)
     object_id = Column(Integer, ForeignKey("objects.id"), nullable=True)
     template_id = Column(Integer, ForeignKey("ppr_templates.id"), nullable=True)
+    assignee_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # назначенный сотрудник
     title = Column(String(255))
     planned_date = Column(Date)
     fact_date = Column(Date, nullable=True)
-    responsible = Column(String(150))
+    responsible = Column(String(150))  # ФИО (дубль для отчётов)
     status = Column(String(30), default=PPRStatus.PLANNED.value)
     work_types_done = Column(JSON, default=list)  # ["7.5", "7.6"]
     comment = Column(Text)
     act_file = Column(String(255), nullable=True)
+    assigned_by_duty = Column(Boolean, default=False)  # назначен по графику дежурств
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     object = relationship("Object", back_populates="ppr_plans")
     template = relationship("PPRTemplate")
+    assignee_user = relationship("User", back_populates="plans")
 
 
 class DailyCheck(Base):

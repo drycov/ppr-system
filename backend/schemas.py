@@ -57,12 +57,14 @@ class PPRTemplateOut(PPRTemplateBase):
 class PPRPlanBase(BaseModel):
     object_id: Optional[int] = None
     template_id: Optional[int] = None
+    assignee_id: Optional[int] = None
     title: Optional[str] = None
     planned_date: date
     responsible: Optional[str] = None
     status: str = "planned"
     work_types_done: List[str] = []
     comment: Optional[str] = None
+    assigned_by_duty: bool = False
 
 
 class PPRPlanCreate(PPRPlanBase):
@@ -129,3 +131,74 @@ class RegulationItem(BaseModel):
     content: str
     periodicity: str
     responsible: str
+
+
+# ---- Staff / Duty ----
+class StaffCreate(BaseModel):
+    username: str
+    full_name: str
+    password: str = "eng"
+    role: str = "engineer"
+    position: str = "Инженер ОСС"
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    can_do_ppr: bool = True
+    can_duty: bool = True
+    notes: Optional[str] = None
+
+
+class StaffUpdate(BaseModel):
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    position: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    is_active: Optional[bool] = None
+    can_do_ppr: Optional[bool] = None
+    can_duty: Optional[bool] = None
+    notes: Optional[str] = None
+    password: Optional[str] = None
+
+
+class StaffOut(BaseModel):
+    id: int
+    username: str
+    full_name: Optional[str] = None
+    role: str
+    position: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    is_active: bool = True
+    can_do_ppr: bool = True
+    can_duty: bool = True
+    notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DutyCreate(BaseModel):
+    duty_date: date
+    user_id: int
+    shift: str = "day"
+    notes: Optional[str] = None
+
+
+class DutyOut(BaseModel):
+    id: int
+    duty_date: date
+    user_id: int
+    shift: str
+    notes: Optional[str] = None
+    user: Optional[StaffOut] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DutyBulkCreate(BaseModel):
+    """Массовое назначение: список дат одному сотруднику"""
+    user_id: int
+    dates: List[date]
+    shift: str = "day"
+    notes: Optional[str] = None

@@ -11,14 +11,14 @@ from pathlib import Path
 from io import BytesIO
 
 from database import get_db, engine, Base
-from models import Object, PPRTemplate, PPRPlan, DailyCheck, User
+from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule
 import schemas
 import seed
 from auth import (
     authenticate_user, create_access_token, require_user, require_admin,
     get_current_user, Token, UserOut, ACCESS_TOKEN_EXPIRE_HOURS
 )
-from planning import generate_plans_for_period, mark_overdue
+from planning import generate_plans_for_period, mark_overdue, reassign_plans_by_duty
 from pdf_service import generate_ppr_act
 from excel_export import export_ppr_report
 
@@ -415,6 +415,190 @@ def export_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+
+# ========== Staff (сотрудники) ==========
+@app.get("/api/staff", response_model=List[schemas.StaffOut])
+def list_staff(
+    active_only: bool = True,
+    can_duty: Optional[bool] = None,
+    can_do_ppr: Optional[bool] = None,
+    db: Session = Depends(get_db),
+):
+    q = db.query(User)
+    if active_only:
+        q = q.filter(User.is_active == True)
+    if can_duty is not None:
+        q = q.filter(User.can_duty == can_duty)
+    if can_do_ppr is not None:
+        q = q.filter(User.can_do_ppr == can_do_ppr)
+    return q.order_by(User.full_name).all()
+
+
+@app.post("/api/staff", response_model=schemas.StaffOut)
+def create_staff(data: schemas.StaffCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if db.query(User).filter(User.username == data.username).first():
+        raise HTTPException(400, "Логин уже занят")
+    u = User(
+        username=data.username,
+        full_name=data.full_name,
+        hashed_password=data.password,
+        role=data.role,
+        position=data.position,
+        phone=data.phone,
+        email=data.email,
+        can_do_ppr=data.can_do_ppr,
+        can_duty=data.can_duty,
+        notes=data.notes,
+        is_active=True,
+    )
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+@app.patch("/api/staff/{staff_id}", response_model=schemas.StaffOut)
+def update_staff(staff_id: int, data: schemas.StaffUpdate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    u = db.query(User).filter(User.id == staff_id).first()
+    if not u:
+        raise HTTPException(404, "Сотрудник не найден")
+    payload = data.model_dump(exclude_unset=True)
+    if "password" in payload and payload["password"]:
+        u.hashed_password = payload.pop("password")
+    else:
+        payload.pop("password", None)
+    for k, v in payload.items():
+        setattr(u, k, v)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+@app.delete("/api/staff/{staff_id}")
+def deactivate_staff(staff_id: int, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    u = db.query(User).filter(User.id == staff_id).first()
+    if not u:
+        raise HTTPException(404, "Сотрудник не найден")
+    u.is_active = False
+    db.commit()
+    return {"ok": True}
+
+
+# ========== Duty schedule (дежурства) ==========
+@app.get("/api/duties", response_model=List[schemas.DutyOut])
+def list_duties(
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+    user_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    q = db.query(DutySchedule).options(joinedload(DutySchedule.user))
+    if from_date:
+        q = q.filter(DutySchedule.duty_date >= from_date)
+    if to_date:
+        q = q.filter(DutySchedule.duty_date <= to_date)
+    if user_id:
+        q = q.filter(DutySchedule.user_id == user_id)
+    return q.order_by(DutySchedule.duty_date).all()
+
+
+@app.get("/api/duties/today")
+def duty_today(db: Session = Depends(get_db)):
+    today = date.today()
+    duties = (
+        db.query(DutySchedule)
+        .options(joinedload(DutySchedule.user))
+        .filter(DutySchedule.duty_date == today)
+        .all()
+    )
+    return [
+        {
+            "id": d.id,
+            "duty_date": d.duty_date.isoformat(),
+            "shift": d.shift,
+            "user_id": d.user_id,
+            "full_name": d.user.full_name if d.user else None,
+            "username": d.user.username if d.user else None,
+        }
+        for d in duties
+    ]
+
+
+@app.post("/api/duties", response_model=schemas.DutyOut)
+def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    staff = db.query(User).filter(User.id == data.user_id).first()
+    if not staff:
+        raise HTTPException(404, "Сотрудник не найден")
+    # один основной дежурный на день — обновляем если уже есть
+    existing = db.query(DutySchedule).filter(DutySchedule.duty_date == data.duty_date, DutySchedule.shift == data.shift).first()
+    if existing:
+        existing.user_id = data.user_id
+        existing.notes = data.notes
+        db.commit()
+        db.refresh(existing)
+        return existing
+    d = DutySchedule(duty_date=data.duty_date, user_id=data.user_id, shift=data.shift, notes=data.notes)
+    db.add(d)
+    db.commit()
+    db.refresh(d)
+    return d
+
+
+@app.post("/api/duties/bulk")
+def create_duties_bulk(data: schemas.DutyBulkCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    staff = db.query(User).filter(User.id == data.user_id).first()
+    if not staff:
+        raise HTTPException(404, "Сотрудник не найден")
+    created = 0
+    updated = 0
+    for d in data.dates:
+        existing = db.query(DutySchedule).filter(DutySchedule.duty_date == d, DutySchedule.shift == data.shift).first()
+        if existing:
+            existing.user_id = data.user_id
+            existing.notes = data.notes
+            updated += 1
+        else:
+            db.add(DutySchedule(duty_date=d, user_id=data.user_id, shift=data.shift, notes=data.notes))
+            created += 1
+    db.commit()
+    return {"created": created, "updated": updated, "message": f"Создано {created}, обновлено {updated}"}
+
+
+@app.delete("/api/duties/{duty_id}")
+def delete_duty(duty_id: int, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    d = db.query(DutySchedule).filter(DutySchedule.id == duty_id).first()
+    if not d:
+        raise HTTPException(404, "Запись не найдена")
+    db.delete(d)
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/planning/reassign-by-duty")
+def api_reassign_by_duty(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    return reassign_plans_by_duty(db, year, month)
+
+
+@app.get("/api/plans/my")
+def my_plans(
+    status: Optional[str] = None,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Задачи текущего пользователя (по assignee или ФИО)"""
+    q = db.query(PPRPlan).options(joinedload(PPRPlan.object)).filter(
+        (PPRPlan.assignee_id == user.id) | (PPRPlan.responsible.ilike(f"%{user.full_name}%") if user.full_name else False)
+    )
+    if status:
+        q = q.filter(PPRPlan.status == status)
+    return q.order_by(PPRPlan.planned_date).limit(100).all()
 
 
 # ========== Static frontend ==========
