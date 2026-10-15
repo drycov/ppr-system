@@ -674,7 +674,7 @@ def export_excel(
 def admin_fictitious_completion(
     plan_id: int,
     reason: str = Query(..., min_length=5, max_length=500),
-    fact_date: date = Query(default_factory=date.today),
+    fact_date: Optional[date] = Query(None),
     work_types: List[str] = Query(default=[]),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -688,6 +688,7 @@ def admin_fictitious_completion(
     reason = reason.strip()
     if len(reason) < 5:
         raise HTTPException(422, "Укажите причину фиктивной отметки (не менее 5 символов)")
+    fact_date = fact_date or date.today()
     marker = (
         f"[ФИКТИВНАЯ ОТМЕТКА — НЕ ПОДТВЕРЖДЕНО ФАКТИЧЕСКИ] "
         f"Администратор: {user.username}; дата внесения: {datetime.utcnow().isoformat(timespec='seconds')}; "
