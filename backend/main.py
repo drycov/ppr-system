@@ -233,6 +233,40 @@ def telegram_miniapp_auth(payload: dict, db: Session = Depends(get_db)):
     }
 
 
+@app.get("/api/telegram-miniapp/duties")
+def telegram_miniapp_duties(
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Return only the authenticated employee's duty entries for the Mini App."""
+    from sqlalchemy import or_
+    start = from_date or date.today()
+    end = to_date or (start + timedelta(days=30))
+    if end < start or (end - start).days > 93:
+        raise HTTPException(status_code=422, detail="Период должен быть не более 94 дней")
+    rows = (
+        db.query(DutySchedule)
+        .outerjoin(Department, DutySchedule.department_id == Department.id)
+        .filter(
+            DutySchedule.user_id == user.id,
+            DutySchedule.duty_date >= start,
+            DutySchedule.duty_date <= end,
+            or_(DutySchedule.department_id.is_(None), Department.duty_enabled.is_(True)),
+        )
+        .order_by(DutySchedule.duty_date, DutySchedule.shift)
+        .all()
+    )
+    return [{
+        "id": row.id,
+        "duty_date": row.duty_date.isoformat(),
+        "shift": row.shift,
+        "notes": row.notes,
+        "department": row.department.name if row.department else "Все подразделения",
+    } for row in rows]
+
+
 # ========== Dashboard ==========
 @app.get("/api/dashboard", response_model=schemas.DashboardStats)
 def get_dashboard(db: Session = Depends(get_db)):
