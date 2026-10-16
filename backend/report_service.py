@@ -181,14 +181,14 @@ def export_ppr_period_report(
         ("Активных объектов", sum(1 for obj in objects if obj.status == "active")),
         ("Объектов типа ЦОД", sum(1 for obj in objects if obj.object_type == "cod")),
         ("Записей ежедневного контроля", len(daily_checks)),
-        ("Всего задач в периоде", len(plans)),
+        ("Всего задач в периоде", len(report_rows)),
         ("Выполнено (включая фиктивные)", counts["done"]),
         ("Из них отмечено фиктивно", counts["fictitious"]),
         ("Запланировано", counts["planned"]),
         ("В работе", counts["in_progress"]),
         ("Просрочено", counts["overdue"]),
         ("Отменено", counts["cancelled"]),
-        ("Доля выполнения, %", round(counts["done"] / len(plans) * 100, 1) if plans else 0),
+        ("Доля выполнения, %", round(counts["done"] / len(report_rows) * 100, 1) if report_rows else 0),
     ]
     for row, (label, value) in enumerate(rows, 5):
         summary.cell(row, 1, label).border = THIN
