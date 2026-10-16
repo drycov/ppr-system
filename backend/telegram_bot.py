@@ -178,8 +178,25 @@ async def _poll(token: str):
 
     @dp.message(Command("register"))
     async def register(message: Message):
+        db = _db()
+        try:
+            linked = _linked_user(db, message.chat.id)
+            if linked:
+                _registration[message.chat.id] = {"step": "phone", "user_id": linked.id}
+                await _send(message, "📝 <b>Обновление данных</b>\\n\\nВведите актуальный номер телефона. После отправки заявка будет повторно направлена администратору.")
+                return
+            from models import User
+            pending = db.query(User).filter(
+                User.telegram_chat_id == str(message.chat.id),
+                User.telegram_status == "pending",
+            ).first()
+            if pending:
+                await _send(message, "Ваша заявка уже ожидает одобрения администратора. Повторно отправлять её не нужно.")
+                return
+        finally:
+            db.close()
         _registration[message.chat.id] = {"step": "name"}
-        await _send(message, "📝 <b>Регистрация сотрудника</b>\n\nВведите ваше ФИО (как в веб-системе):")
+        await _send(message, "📝 <b>Регистрация сотрудника</b>\\n\\nВведите ваше ФИО (как в веб-системе):")
 
     @dp.message(Command("help"))
     async def help_command(message: Message):
@@ -237,11 +254,19 @@ async def _poll(token: str):
             start = today - timedelta(days=today.weekday()) if week_only else today
             end = start + timedelta(days=6) if week_only else today + timedelta(days=days - 1)
             rows = _duty_rows(db, start, end, user.id)
-            if not rows:
+            deduplicated = []
+            seen = set()
+            for row in rows:
+                key = (row.duty_date, row.shift)
+                if key in seen:
+                    continue
+                seen.add(key)
+                deduplicated.append(row)
+            if not deduplicated:
                 await _send(message, "На этот период у вас нет назначенных дежурств.")
                 return
             title = "Ваша дежурная неделя" if week_only else "Ваши ближайшие дежурства"
-            await _send(message, "<b>" + title + f" ({start.strftime('%d.%m')}–{end.strftime('%d.%m.%Y')}):</b>\n" + "\n".join(_duty_line(d) for d in rows))
+            await _send(message, "<b>" + title + f" ({start.strftime('%d.%m')}–{end.strftime('%d.%m.%Y')}):</b>\\n" + "\\n".join(_duty_line(d) for d in deduplicated))
         except Exception:
             logger.exception("Telegram personal schedule failed")
             await _send(message, "Не удалось получить график. Попробуйте позже.")
@@ -298,7 +323,7 @@ async def _poll(token: str):
                 other = db.query(User).filter(
                     User.telegram_chat_id == str(chat_id),
                     User.id != user.id,
-                    User.telegram_status == "approved",
+                    User.telegram_status.in_(["approved", "pending"]),
                 ).first()
                 if other:
                     await _send(message, "Этот Telegram уже привязан к другому сотруднику. Обратитесь к администратору.")
