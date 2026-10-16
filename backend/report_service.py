@@ -133,6 +133,10 @@ def export_ppr_period_report(
     summary["B4"] = "Количество"
     _header(summary, 4, 2)
     rows = [
+        ("Всего объектов в реестре", len(objects)),
+        ("Активных объектов", sum(1 for obj in objects if obj.status == "active")),
+        ("Объектов типа ЦОД", sum(1 for obj in objects if obj.object_type == "cod")),
+        ("Записей ежедневного контроля", len(daily_checks)),
         ("Всего задач в периоде", len(plans)),
         ("Выполнено (включая фиктивные)", counts["done"]),
         ("Из них отмечено фиктивно", counts["fictitious"]),
