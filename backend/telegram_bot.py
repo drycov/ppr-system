@@ -138,13 +138,14 @@ async def _poll(token: str):
             if user:
                 dept = html.escape(user.department.name if user.department else "не указано")
                 position = html.escape(user.position or "не указана")
+                role_label = {"admin": "Администратор", "head": "Руководитель", "engineer": "Сотрудник", "viewer": "Наблюдатель"}.get(user.role, user.role or "—")
                 await _send(
                     message,
                     "<b>Ваши данные:</b>\n\n"
                     f"ФИО: {html.escape(user.full_name or user.username or '—')}\n"
                     f"Телефон: {html.escape(user.phone or 'не указан')}\n"
                     f"Должность: {position}\nПодразделение: {dept}\n"
-                    f"Роль: {html.escape(user.role or '—')}\n\nСтатус: ✅ Активен\n\n"
+                    f"Роль: {html.escape(role_label)}\n\nСтатус: ✅ Активен\n\n"
                     + _commands(),
                 )
                 return
