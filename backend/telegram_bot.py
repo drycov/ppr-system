@@ -7,7 +7,8 @@ import logging
 import os
 import re
 import threading
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -21,7 +22,62 @@ _thread: threading.Thread | None = None
 _loop: asyncio.AbstractEventLoop | None = None
 _dispatcher: Dispatcher | None = None
 _running_token: str | None = None
-_registration: dict[int, dict] = {}
+_REGISTRATION_TTL = timedelta(hours=24)
+DEFAULT_TIMEZONE = "Asia/Almaty"
+
+
+def _today() -> date:
+    try:
+        timezone_name = os.environ.get("PPR_TIMEZONE", DEFAULT_TIMEZONE)
+        return datetime.now(ZoneInfo(timezone_name)).date()
+    except Exception:
+        logger.exception("Invalid PPR_TIMEZONE; using %s", DEFAULT_TIMEZONE)
+        return datetime.now(ZoneInfo(DEFAULT_TIMEZONE)).date()
+
+
+def _get_registration(chat_id: int) -> dict | None:
+    from models import TelegramRegistrationSession
+    db = _db()
+    try:
+        row = db.query(TelegramRegistrationSession).filter_by(chat_id=str(chat_id)).first()
+        if not row:
+            return None
+        updated = row.updated_at or datetime.utcnow()
+        if datetime.utcnow() - updated > _REGISTRATION_TTL:
+            db.delete(row)
+            db.commit()
+            return None
+        return {"step": row.step, "user_id": row.user_id}
+    finally:
+        db.close()
+
+
+def _set_registration(chat_id: int, step: str, user_id: int | None = None) -> None:
+    from models import TelegramRegistrationSession
+    db = _db()
+    try:
+        row = db.query(TelegramRegistrationSession).filter_by(chat_id=str(chat_id)).first()
+        if row is None:
+            row = TelegramRegistrationSession(chat_id=str(chat_id), step=step, user_id=user_id)
+            db.add(row)
+        else:
+            row.step, row.user_id, row.updated_at = step, user_id, datetime.utcnow()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _clear_registration(chat_id: int) -> None:
+    from models import TelegramRegistrationSession
+    db = _db()
+    try:
+        db.query(TelegramRegistrationSession).filter_by(chat_id=str(chat_id)).delete()
+        db.commit()
+    finally:
+        db.close()
 
 
 def _read_token(db=None) -> tuple[bool, str]:
@@ -80,11 +136,20 @@ def _linked_user(db, chat_id: int):
 
 
 def _duty_rows(db, start: date, end: date, user_id: int | None = None):
-    from models import DutySchedule
+    from models import Department, DutySchedule, User
+    from sqlalchemy import or_
     from sqlalchemy.orm import joinedload
-    q = db.query(DutySchedule).options(
+    q = db.query(DutySchedule).join(User, DutySchedule.user_id == User.id).outerjoin(
+        Department, DutySchedule.department_id == Department.id
+    ).options(
         joinedload(DutySchedule.user), joinedload(DutySchedule.department)
-    ).filter(DutySchedule.duty_date >= start, DutySchedule.duty_date <= end)
+    ).filter(
+        DutySchedule.duty_date >= start,
+        DutySchedule.duty_date <= end,
+        User.is_active.is_(True),
+        User.can_duty.is_(True),
+        or_(DutySchedule.department_id.is_(None), Department.duty_enabled.is_(True)),
+    )
     if user_id is not None:
         q = q.filter(DutySchedule.user_id == user_id)
     return q.order_by(DutySchedule.duty_date, DutySchedule.department_id, DutySchedule.shift).all()
@@ -110,7 +175,7 @@ async def _poll(token: str):
     async def _show_who(message: Message):
         db = _db()
         try:
-            today = date.today()
+            today = _today()
             rows = _duty_rows(db, today, today)
             # One person may have both a global and a local assignment. Display that person once.
             seen = set()
@@ -149,9 +214,10 @@ async def _poll(token: str):
                     + _commands(),
                 )
                 return
-            pending = db.query(__import__("models").User).filter(
-                __import__("models").User.telegram_chat_id == str(message.chat.id),
-                __import__("models").User.telegram_status == "pending",
+            from models import User
+            pending = db.query(User).filter(
+                User.telegram_chat_id == str(message.chat.id),
+                User.telegram_status == "pending",
             ).first()
             if pending:
                 await _send(
@@ -168,7 +234,7 @@ async def _poll(token: str):
         finally:
             db.close()
         if start_registration:
-            _registration[message.chat.id] = {"step": "name"}
+            _set_registration(message.chat.id, "name")
             await _send(message, "📝 <b>Регистрация сотрудника</b>\n\nВведите ваше ФИО (как в веб-системе):")
         else:
             await _send(message, "Аккаунт не привязан. Используйте /register для подачи заявки.")
@@ -183,7 +249,7 @@ async def _poll(token: str):
         try:
             linked = _linked_user(db, message.chat.id)
             if linked:
-                _registration[message.chat.id] = {"step": "phone", "user_id": linked.id}
+                _set_registration(message.chat.id, "phone", linked.id)
                 await _send(message, "📝 <b>Обновление данных</b>\n\nВведите актуальный номер телефона. После отправки заявка будет повторно направлена администратору.")
                 return
             from models import User
@@ -196,7 +262,7 @@ async def _poll(token: str):
                 return
         finally:
             db.close()
-        _registration[message.chat.id] = {"step": "name"}
+        _set_registration(message.chat.id, "name")
         await _send(message, "📝 <b>Регистрация сотрудника</b>\n\nВведите ваше ФИО (как в веб-системе):")
 
     @dp.message(Command("help"))
@@ -223,7 +289,7 @@ async def _poll(token: str):
             if not user:
                 await _send(message, "Аккаунт не привязан или заявка ещё не одобрена. Используйте /register или обратитесь к администратору.")
                 return
-            today = date.today()
+            today = _today()
             rows = [d for d in _duty_rows(db, today, today, user.id)]
             if rows:
                 shifts = ", ".join({"day": "день", "night": "ночь", "full": "сутки"}.get(d.shift, d.shift) for d in rows)
@@ -251,7 +317,7 @@ async def _poll(token: str):
             if not user:
                 await _send(message, "Аккаунт не привязан или заявка ещё не одобрена. Используйте /register или обратитесь к администратору.")
                 return
-            today = date.today()
+            today = _today()
             start = today - timedelta(days=today.weekday()) if week_only else today
             end = start + timedelta(days=6) if week_only else today + timedelta(days=days - 1)
             rows = _duty_rows(db, start, end, user.id)
@@ -267,7 +333,20 @@ async def _poll(token: str):
                 await _send(message, "На этот период у вас нет назначенных дежурств.")
                 return
             title = "Ваша дежурная неделя" if week_only else "Ваши ближайшие дежурства"
-            await _send(message, "<b>" + title + f" ({start.strftime('%d.%m')}–{end.strftime('%d.%m.%Y')}):</b>\n" + "\n".join(_duty_line(d) for d in deduplicated))
+            response = "<b>" + title + f" ({start.strftime('%d.%m.%Y')}–{end.strftime('%d.%m.%Y')}):</b>\n" + "\n".join(_duty_line(d) for d in deduplicated)
+            chunks = []
+            current = ""
+            for line in response.splitlines():
+                candidate = (current + "\n" + line).strip()
+                if len(candidate) > 3500 and current:
+                    chunks.append(current)
+                    current = line
+                else:
+                    current = candidate
+            if current:
+                chunks.append(current)
+            for chunk in chunks:
+                await _send(message, chunk)
         except Exception:
             logger.exception("Telegram personal schedule failed")
             await _send(message, "Не удалось получить график. Попробуйте позже.")
@@ -277,7 +356,12 @@ async def _poll(token: str):
     @dp.message()
     async def registration_input(message: Message):
         chat_id = message.chat.id
-        state = _registration.get(chat_id)
+        try:
+            state = _get_registration(chat_id)
+        except Exception:
+            logger.exception("Could not load Telegram registration session")
+            await _send(message, "Не удалось продолжить регистрацию. Отправьте /register, чтобы начать заново.")
+            return
         if not state:
             return
         text = (message.text or "").strip()
@@ -285,7 +369,7 @@ async def _poll(token: str):
             await _send(message, "Отправьте текстовое сообщение или /cancel для отмены.")
             return
         if text.casefold() in {"/cancel", "отмена"}:
-            _registration.pop(chat_id, None)
+            _clear_registration(chat_id)
             await _send(message, "Регистрация отменена.")
             return
         db = _db()
@@ -308,7 +392,7 @@ async def _poll(token: str):
                     await _send(message, "Заявка этого сотрудника уже отправлена из другого Telegram.")
                     return
                 state.update({"step": "phone", "user_id": user.id})
-                _registration[chat_id] = state
+                _set_registration(chat_id, "phone", user.id)
                 await _send(message, f"👤 Найден сотрудник: <b>{html.escape(user.full_name or user.username or '—')}</b>\n📱 Текущий телефон: {html.escape(user.phone or 'не указан')}\n\nВведите номер телефона (например: +77001234567):")
                 return
             if state["step"] == "phone":
@@ -318,7 +402,7 @@ async def _poll(token: str):
                     return
                 user = db.query(User).filter(User.id == state["user_id"], User.is_active.is_(True)).first()
                 if not user:
-                    _registration.pop(chat_id, None)
+                    _clear_registration(chat_id)
                     await _send(message, "Сотрудник больше не активен. Обратитесь к администратору.")
                     return
                 other = db.query(User).filter(
@@ -333,7 +417,7 @@ async def _poll(token: str):
                 user.telegram_pending_phone = phone
                 user.telegram_status = "pending"
                 db.commit()
-                _registration.pop(chat_id, None)
+                _clear_registration(chat_id)
                 dept = html.escape(user.department.name if user.department else "не указано")
                 pos = html.escape(user.position or "не указана")
                 await _send(
