@@ -1091,7 +1091,10 @@
       if (objectsFilter.type) params.set('object_type', objectsFilter.type);
       if (objectsFilter.search) params.set('search', objectsFilter.search);
       params.set('limit', '200');
-      const objects = await api('/api/objects?' + params);
+      const [objects, usNodes] = await Promise.all([api('/api/objects?' + params), api('/api/objects?object_type=us&limit=200').catch(() => [])]);
+      const usById = new Map(usNodes.map(node => [Number(node.id), node]));
+      const usSummaries = new Map();
+      await Promise.all(objects.filter(o => o.object_type === 'us').map(async o => { try { usSummaries.set(Number(o.id), await api('/api/objects/' + o.id + '/address-summary')); } catch (_) {} }));
 
       el.innerHTML = `
         <div class="flex flex-wrap gap-3 mb-4 items-center">
@@ -1141,8 +1144,8 @@
                 objects.map(o => `
                 <tr class="table-row border-t border-slate-50">
                   <td class="px-4 py-3 font-mono text-xs font-medium">${o.code}</td>
-                  <td class="px-4 py-3 max-w-xs truncate" title="${(o.address || '').replace(/"/g,'&quot;')}">${o.address || o.name || '—'}</td>
-                  <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${typeLabel(o.object_type)}</span></td>
+                  <td class="px-4 py-3 max-w-xs" title="${(o.address || '').replace(/"/g,'&quot;')}"><div class="truncate">${o.address || o.name || '—'}</div>${o.parent_us_id && usById.has(Number(o.parent_us_id)) ? '<div class="mt-1 text-xs text-indigo-600">УС: ' + usById.get(Number(o.parent_us_id)).code + '</div>' : ''} </td>
+                  <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${typeLabel(o.object_type)}</span>${o.object_type === 'us' && usSummaries.has(Number(o.id)) ? '<div class="mt-2 max-w-xs text-[11px] leading-5 text-slate-600">Всего адресов: <b>' + usSummaries.get(Number(o.id)).total + '</b><br>' + usSummaries.get(Number(o.id)).types.map(t => t.name + ': ' + t.count).join(' · ') + '</div>' : ''} </td>
                   <td class="px-4 py-3">${o.cameras_count || '—'}</td>
                   <td class="px-4 py-3 text-xs">${o.responsible_default || '—'}</td>
                   <td class="px-4 py-3"><span class="text-xs ${o.status==='active'?'text-teal-700':'text-slate-400'}">${o.status}</span></td>
