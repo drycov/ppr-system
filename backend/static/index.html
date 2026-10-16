@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0f766e" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="ППР ОСС" />
@@ -119,6 +119,47 @@
     .card { transition: box-shadow .15s; }
     .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.08); }
     .table-row:hover { background: #f8fafc; }
+
+    /* Mobile-first PWA layout */
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { overscroll-behavior-y: contain; }
+    @media (max-width: 767px) {
+      body { font-size: 14px; }
+      body > .flex.h-screen { height: 100vh; height: 100dvh; min-height: 0; }
+      body > .flex.h-screen > aside { display: none !important; }
+      body > .flex.h-screen > main { min-width: 0; width: 100%; padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+      body > .flex.h-screen > main > header { height: auto; min-height: 56px; padding: 10px 14px; gap: 8px; }
+      #page-title { font-size: 16px; line-height: 1.25; }
+      #current-date { display: none; }
+      #user-chip { gap: 6px; }
+      #btn-logout { padding: 8px 9px; min-height: 40px; }
+      #content { padding: 12px !important; padding-bottom: 18px !important; min-width: 0; overflow-x: hidden; }
+      #content > * { min-width: 0; max-width: 100%; }
+      #content table { min-width: 620px; }
+      #content .overflow-x-auto, #content .overflow-auto { -webkit-overflow-scrolling: touch; }
+      #content input:not([type=checkbox]):not([type=radio]):not([type=color]),
+      #content select, #content textarea,
+      #login-overlay input { font-size: 16px !important; min-height: 44px; max-width: 100%; }
+      #content button, #content a, #login-form button { touch-action: manipulation; }
+      #content button { min-height: 40px; }
+      #login-overlay > div { padding: 22px !important; margin: 12px; max-height: calc(100dvh - 24px); overflow-y: auto; }
+      #modal { align-items: flex-end !important; padding: 0 !important; }
+      #modal > div { width: 100% !important; max-width: none !important; margin: 0 !important; max-height: 90dvh !important; border-radius: 20px 20px 0 0 !important; padding-bottom: env(safe-area-inset-bottom); }
+      #modal > div > div { padding: 16px !important; }
+      #toast-container { top: calc(8px + env(safe-area-inset-top)); right: 8px; left: 8px; width: auto; max-width: none; }
+      .mobile-bottom-nav { display: grid !important; }
+    }
+    .mobile-bottom-nav { display: none; position: fixed; z-index: 80; bottom: 0; left: 0; right: 0; grid-template-columns: repeat(5,minmax(0,1fr)); padding: 6px 5px calc(6px + env(safe-area-inset-bottom)); background: rgba(255,255,255,.96); border-top: 1px solid #e2e8f0; backdrop-filter: blur(16px); }
+    .mobile-bottom-nav button { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; min-width:0; min-height:48px; border-radius:12px; color:#64748b; font-size:10px; font-weight:600; }
+    .mobile-bottom-nav button.active { background:#ccfbf1; color:#115e59; }
+    .mobile-bottom-nav svg { width:20px; height:20px; }
+    #mobile-more-overlay { display:none; position:fixed; z-index:79; inset:0; background:rgba(15,23,42,.42); padding:12px 12px calc(80px + env(safe-area-inset-bottom)); align-items:flex-end; }
+    #mobile-more-overlay.open { display:flex; }
+    #mobile-more-panel { width:100%; max-height:75dvh; overflow-y:auto; background:white; border-radius:20px; padding:16px; box-shadow:0 20px 50px rgba(0,0,0,.2); }
+    #mobile-more-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    #mobile-more-list .sidebar-link { min-height:46px; display:flex; align-items:center; padding:10px; border-radius:12px; font-size:12px; background:#f8fafc; color:#334155; }
+    #mobile-more-list .sidebar-link.active { background:#ccfbf1; color:#115e59; border-right:0; }
+    @media (min-width: 768px) { #mobile-more-overlay { display:none !important; } }
   </style>
 
   <style id="ppr-design-system">
@@ -311,6 +352,36 @@
       </div>
     </main>
   </div>
+
+  <!-- Mobile PWA navigation -->
+  <nav class="mobile-bottom-nav" aria-label="Мобильная навигация">
+    <button type="button" class="sidebar-link active" data-page="dashboard"><i data-lucide="layout-dashboard"></i><span>Главная</span></button>
+    <button type="button" class="sidebar-link" data-page="plans"><i data-lucide="clipboard-list"></i><span>Задачи</span></button>
+    <button type="button" class="sidebar-link" data-page="objects"><i data-lucide="map-pin"></i><span>Объекты</span></button>
+    <button type="button" class="sidebar-link" data-page="duties"><i data-lucide="calendar-days"></i><span>Дежурства</span></button>
+    <button type="button" id="mobile-more-button" aria-expanded="false"><i data-lucide="menu"></i><span>Ещё</span></button>
+  </nav>
+  <div id="mobile-more-overlay" aria-hidden="true">
+    <section id="mobile-more-panel" role="dialog" aria-modal="true" aria-label="Все разделы">
+      <div class="mb-3 flex items-center justify-between"><h2 class="text-base font-semibold">Все разделы</h2><button type="button" id="mobile-more-close" class="rounded-lg px-3 py-2 text-sm">Закрыть</button></div>
+      <nav id="mobile-more-list" aria-label="Все разделы системы"></nav>
+    </section>
+  </div>
+  <script>
+    (() => {
+      const source = document.getElementById("nav");
+      const target = document.getElementById("mobile-more-list");
+      if (source && target) target.innerHTML = source.innerHTML;
+      const overlay = document.getElementById("mobile-more-overlay");
+      const more = document.getElementById("mobile-more-button");
+      const close = () => { overlay.classList.remove("open"); overlay.setAttribute("aria-hidden","true"); more.setAttribute("aria-expanded","false"); };
+      more.addEventListener("click", () => { overlay.classList.add("open"); overlay.setAttribute("aria-hidden","false"); more.setAttribute("aria-expanded","true"); });
+      document.getElementById("mobile-more-close").addEventListener("click", close);
+      overlay.addEventListener("click", event => { if (event.target === overlay || event.target.closest("#mobile-more-list .sidebar-link")) close(); });
+      document.addEventListener("keydown", event => { if (event.key === "Escape") close(); });
+      document.querySelectorAll(".mobile-bottom-nav [data-page]").forEach(button => button.addEventListener("click", close));
+    })();
+  </script>
 
   <!-- Toast notifications -->
   <div id="toast-container" class="fixed top-4 right-4 z-[120] flex w-full max-w-sm flex-col gap-2 pointer-events-none" aria-live="polite" aria-atomic="false"></div>
