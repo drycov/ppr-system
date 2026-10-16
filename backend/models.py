@@ -176,6 +176,16 @@ class User(Base):
     plans = relationship("PPRPlan", back_populates="assignee_user")
 
 
+class TelegramRegistrationSession(Base):
+    """Persist Telegram registration conversation across bot/container restarts."""
+    __tablename__ = "telegram_registration_sessions"
+
+    chat_id = Column(String(64), primary_key=True)
+    step = Column(String(20), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class DutySchedule(Base):
     """График дежурств: кто дежурит в какой день"""
     __tablename__ = "duty_schedules"
