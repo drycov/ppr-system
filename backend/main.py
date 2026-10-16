@@ -169,6 +169,70 @@ def list_settings_audit(limit: int = Query(100, ge=1, le=500), user: User = Depe
     return [{"id": r.id, "actor": r.actor, "action": r.action, "changes": r.changes, "created_at": r.created_at.isoformat() if r.created_at else None} for r in rows]
 
 
+# ========== Telegram Mini App authentication ==========
+@app.post("/api/telegram-miniapp/auth")
+def telegram_miniapp_auth(payload: dict, db: Session = Depends(get_db)):
+    """Validate Telegram WebApp initData and issue a short-lived application JWT."""
+    import hashlib
+    import hmac
+    import json
+    import os
+    import time
+    from urllib.parse import parse_qsl
+
+    init_data = payload.get("init_data")
+    if not isinstance(init_data, str) or not init_data or len(init_data) > 8192:
+        raise HTTPException(status_code=400, detail="Некорректные данные Telegram Mini App")
+    try:
+        pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)
+        fields = dict(pairs)
+        if len(fields) != len(pairs):
+            raise ValueError("duplicate fields")
+        received_hash = fields.pop("hash", "")
+        auth_date = int(fields.get("auth_date", "0"))
+        telegram_user = json.loads(fields.get("user", "{}"))
+    except (ValueError, TypeError, json.JSONDecodeError):
+        raise HTTPException(status_code=401, detail="Не удалось проверить авторизацию Telegram")
+    if not received_hash or not isinstance(telegram_user, dict) or not telegram_user.get("id"):
+        raise HTTPException(status_code=401, detail="Telegram не передал данные пользователя")
+    now = int(time.time())
+    if auth_date > now + 60 or now - auth_date > 86400:
+        raise HTTPException(status_code=401, detail="Сессия Telegram устарела. Откройте Mini App заново.")
+    try:
+        from settings_service import get_setting
+        bot_token = get_setting(db, "integrations.telegram.bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    except Exception:
+        logger.exception("Cannot load Telegram bot token for Mini App auth")
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not bot_token:
+        raise HTTPException(status_code=503, detail="Telegram-бот не настроен в системе")
+    check_string = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()))
+    secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
+    expected_hash = hmac.new(secret_key, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected_hash, received_hash):
+        raise HTTPException(status_code=401, detail="Подпись Telegram недействительна")
+    telegram_id = str(telegram_user["id"])
+    user = db.query(User).filter(
+        User.telegram_chat_id == telegram_id,
+        User.telegram_status == "approved",
+        User.is_active.is_(True),
+    ).first()
+    if not user:
+        raise HTTPException(status_code=403, detail="Учётная запись не привязана или ожидает одобрения администратора")
+    access_token = create_access_token({"sub": user.username, "auth_method": "telegram_miniapp"})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "full_name": user.full_name or user.username,
+            "role": user.role,
+            "department_id": user.department_id,
+        },
+    }
+
+
 # ========== Dashboard ==========
 @app.get("/api/dashboard", response_model=schemas.DashboardStats)
 def get_dashboard(db: Session = Depends(get_db)):
