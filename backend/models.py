@@ -177,7 +177,7 @@ class User(Base):
     department = relationship("Department", back_populates="users")
     position_ref = relationship("Position", back_populates="users")
     duties = relationship("DutySchedule", back_populates="user")
-    plans = relationship("PPRPlan", back_populates="plans")
+    plans = relationship("PPRPlan", back_populates="assignee_user")
 
 
 class TelegramRegistrationSession(Base):
