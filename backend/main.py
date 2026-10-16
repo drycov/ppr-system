@@ -1008,6 +1008,8 @@ def duty_today(user: User = Depends(require_user), db: Session = Depends(get_db)
 
 @app.post("/api/duties", response_model=schemas.DutyOut)
 def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if data.department_id is None:
+        raise HTTPException(422, "Назначение создаётся только в графике конкретного подразделения; общий график доступен только для просмотра")
     _check_duty_scope(user, data.department_id)
     shift = (data.shift or "day").strip().lower()
     if shift not in {"day", "night", "full"}:
@@ -1049,6 +1051,8 @@ def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db
 
 @app.post("/api/duties/bulk")
 def create_duties_bulk(data: schemas.DutyBulkCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if data.department_id is None:
+        raise HTTPException(422, "Массовое назначение возможно только для конкретного подразделения")
     _check_duty_scope(user, data.department_id)
     shift = (data.shift or "day").strip().lower()
     if shift not in {"day", "night", "full"}:
