@@ -219,10 +219,7 @@ def generate_plans_for_period(
     if work_direction:
         templates = [t for t in templates if (t.work_direction or "") == work_direction]
     if department_id is not None:
-        from models import Department
-        department = db.query(Department).filter(Department.id == department_id).first()
-        excluded_template_ids = set((department.excluded_template_ids or []) if department else [])
-        templates = [t for t in templates if (not (t.department_ids or []) or department_id in (t.department_ids or [])) and t.id not in excluded_template_ids]
+        templates = [t for t in templates if (not (t.department_ids or []) or department_id in (t.department_ids or [])) and department_id not in (t.excluded_department_ids or [])]
     if not include_daily_templates:
         templates = [t for t in templates if t.periodicity != "daily"]
 

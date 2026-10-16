@@ -56,13 +56,11 @@ def on_startup():
             conn.exec_driver_sql("ALTER TABLE ppr_plans ADD COLUMN department_id INTEGER REFERENCES departments(id)")
             conn.exec_driver_sql("UPDATE ppr_plans SET department_id = (SELECT department_id FROM users WHERE users.id = ppr_plans.assignee_id) WHERE department_id IS NULL AND assignee_id IS NOT NULL")
     template_columns = {column["name"] for column in inspect(engine).get_columns("ppr_templates")}
-    if "department_ids" not in template_columns:
-        with engine.begin() as conn:
+    with engine.begin() as conn:
+        if "department_ids" not in template_columns:
             conn.exec_driver_sql("ALTER TABLE ppr_templates ADD COLUMN department_ids JSON NOT NULL DEFAULT '[]'")
-    department_columns = {column["name"] for column in inspect(engine).get_columns("departments")}
-    if "excluded_template_ids" not in department_columns:
-        with engine.begin() as conn:
-            conn.exec_driver_sql("ALTER TABLE departments ADD COLUMN excluded_template_ids JSON NOT NULL DEFAULT '[]'")
+        if "excluded_department_ids" not in template_columns:
+            conn.exec_driver_sql("ALTER TABLE ppr_templates ADD COLUMN excluded_department_ids JSON NOT NULL DEFAULT '[]'")
     # Автосид при первом запуске
     db = next(get_db())
     try:
@@ -275,13 +273,22 @@ def assign_template_departments(
     if not template:
         raise HTTPException(404, "Регламент не найден")
     ids = sorted(set(payload.department_ids))
-    if ids:
-        found = {row[0] for row in db.query(Department.id).filter(Department.id.in_(ids)).all()}
-        if set(ids) - found:
-            raise HTTPException(422, f"Не найдены подразделения: {sorted(set(ids) - found)}")
+    excluded_ids = sorted(set(payload.excluded_department_ids))
+    all_ids = set(ids) | set(excluded_ids)
+    if all_ids:
+        found = {row[0] for row in db.query(Department.id).filter(Department.id.in_(all_ids)).all()}
+        missing = all_ids - found
+        if missing:
+            raise HTTPException(422, f"Не найдены подразделения: {sorted(missing)}")
     template.department_ids = ids
+    template.excluded_department_ids = excluded_ids
     db.commit()
-    return {"ok": True, "template_id": template.id, "department_ids": ids}
+    return {
+        "ok": True,
+        "template_id": template.id,
+        "department_ids": ids,
+        "excluded_department_ids": excluded_ids,
+    }
 
 
 @app.get("/api/regulations")

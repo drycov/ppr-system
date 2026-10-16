@@ -88,6 +88,8 @@ class PPRTemplate(Base):
     is_active = Column(Boolean, default=True)
     # Empty means shared across all departments; otherwise limited to assigned departments.
     department_ids = Column(JSON, default=list, nullable=False)
+    # Departments excluded from this regulation even when it is shared.
+    excluded_department_ids = Column(JSON, default=list, nullable=False)
 
 
 
