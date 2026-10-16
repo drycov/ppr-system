@@ -1,20 +1,24 @@
-const CACHE = 'ppr-oss-v1';
-const ASSETS = ['/', '/static/manifest.json'];
-
-self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+const CACHE_NAME = "ppr-shell-v2";
+const SHELL = ["/", "/manifest.json", "/icons/ppr.svg", "/miniapp.html"];
+self.addEventListener("install", event => {
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });
-
-self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())
-  );
+self.addEventListener("activate", event => {
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)))).then(() => self.clients.claim()));
 });
-
-self.addEventListener('fetch', (e) => {
-  const url = new URL(e.request.url);
-  if (url.pathname.startsWith('/api/')) return; // сеть для API
-  e.respondWith(
-    caches.match(e.request).then((cached) => cached || fetch(e.request).catch(() => caches.match('/')))
-  );
+self.addEventListener("fetch", event => {
+  const request = event.request;
+  const url = new URL(request.url);
+  if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+  if (request.mode === "navigate") {
+    event.respondWith(fetch(request).then(response => {
+      if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put(request, response.clone()));
+      return response;
+    }).catch(async () => (await caches.match(request)) || (await caches.match("/"))));
+    return;
+  }
+  event.respondWith(caches.match(request).then(cached => cached || fetch(request).then(response => {
+    if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put(request, response.clone()));
+    return response;
+  })));
 });

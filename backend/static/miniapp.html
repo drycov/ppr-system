@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <title>ППР — Telegram Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root{color-scheme:light;--bg:var(--tg-theme-bg-color,#f8fafc);--text:var(--tg-theme-text-color,#0f172a);--muted:var(--tg-theme-hint-color,#64748b);--card:var(--tg-theme-secondary-bg-color,#fff);--accent:var(--tg-theme-button-color,#0f766e);--line:rgba(100,116,139,.2)}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,sans-serif;padding:calc(16px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))}
+    header{display:flex;align-items:center;gap:12px;margin:0 0 20px}.logo{width:44px;height:44px;border-radius:14px;background:var(--accent);color:white;display:grid;place-items:center;font-weight:800;font-size:19px}h1{font-size:21px;margin:0}header p{margin:2px 0 0;color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:15px;min-width:0}.metric{font-size:28px;font-weight:750;letter-spacing:-.04em}.label{font-size:12px;color:var(--muted)}h2{font-size:16px;margin:22px 0 10px}.list{display:grid;gap:8px}.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}.item strong{display:block}.item small{color:var(--muted)}.bar{height:7px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:10px}.bar span{display:block;height:100%;background:var(--accent)}button{font:inherit;border:0;border-radius:12px;background:var(--accent);color:var(--tg-theme-button-text-color,#fff);padding:12px 15px;font-weight:650;width:100%;margin-top:14px}.status{padding:12px;border-radius:12px;background:var(--card);color:var(--muted)}.hidden{display:none!important}.error{color:#b91c1c}.foot{margin-top:20px;text-align:center;font-size:11px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <header><div class="logo">П</div><div><h1>ППР ОСС / АПК</h1><p id="hello">Рабочее пространство</p></div></header>
+  <div id="message" class="status">Проверка авторизации Telegram…</div>
+  <main id="app" class="hidden">
+    <div class="grid">
+      <section class="card"><div class="metric" id="objects">—</div><div class="label">Объектов</div></section>
+      <section class="card"><div class="metric" id="active">—</div><div class="label">Активных объектов</div></section>
+      <section class="card"><div class="metric" id="planned">—</div><div class="label">Задач запланировано</div></section>
+      <section class="card"><div class="metric" id="overdue">—</div><div class="label">Просрочено</div></section>
+    </div>
+    <section class="card" style="margin-top:10px"><div style="display:flex;justify-content:space-between;gap:12px"><strong>Выполнение ППР</strong><strong id="percent">0%</strong></div><div class="bar"><span id="progress" style="width:0%"></span></div><div class="label" id="done" style="margin-top:8px"></div></section>
+    <h2>Мои ближайшие дежурства</h2><div id="duties" class="list"><div class="status">Загрузка графика…</div></div>
+    <button id="refresh" type="button">Обновить данные</button>
+  </main>
+  <div class="foot">Доступ только для привязанной и одобренной учётной записи сотрудника.</div>
+<script>
+(() => {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  let token = "";
+  const message = document.getElementById("message");
+  const setMessage = (text, error=false) => { message.textContent=text; message.className="status"+(error?" error":""); message.classList.remove("hidden"); };
+  const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  async function api(path) {
+    const response = await fetch(path,{headers:{Authorization:"Bearer "+token}});
+    if(!response.ok) { let detail="Ошибка API ("+response.status+")"; try{const data=await response.json();detail=data.detail||detail}catch{} throw new Error(detail); }
+    return response.json();
+  }
+  async function load() {
+    const stats=await api("/api/dashboard");
+    document.getElementById("objects").textContent=stats.total_objects;
+    document.getElementById("active").textContent=stats.active_objects;
+    document.getElementById("planned").textContent=stats.planned_ppr;
+    document.getElementById("overdue").textContent=stats.overdue_ppr;
+    document.getElementById("percent").textContent=stats.completion_percent+"%";
+    document.getElementById("progress").style.width=Math.max(0,Math.min(100,stats.completion_percent))+"%";
+    document.getElementById("done").textContent="Выполнено задач: "+stats.done_ppr;
+    const now=new Date(); const end=new Date(now); end.setDate(end.getDate()+30);
+    const fmt=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");return y+"-"+m+"-"+day};
+    const duties=await api("/api/telegram-miniapp/duties?from_date="+fmt(now)+"&to_date="+fmt(end));
+    const box=document.getElementById("duties");
+    box.innerHTML=duties.length?duties.map(d=>'<article class="item"><strong>'+esc(d.duty_date)+' · '+esc(({day:"День",night:"Ночь",full:"Сутки"})[d.shift]||d.shift)+'</strong><small>'+esc(d.department||"Дежурство")+(d.notes?" · "+esc(d.notes):"")+'</small></article>').join(""):'<div class="status">На ближайшие 30 дней дежурства не назначены.</div>';
+    document.getElementById("app").classList.remove("hidden");
+    message.classList.add("hidden");
+  }
+  async function start() {
+    if(!tg || !tg.initData) { setMessage("Откройте Mini App через Telegram. В обычном браузере вход отключён.",true); return; }
+    tg.ready(); tg.expand();
+    if(tg.setHeaderColor) tg.setHeaderColor("secondary_bg_color");
+    try {
+      const response=await fetch("/api/telegram-miniapp/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({init_data:tg.initData})});
+      const data=await response.json();
+      if(!response.ok) throw new Error(data.detail||"Не удалось авторизовать Telegram-пользователя");
+      token=data.access_token;
+      document.getElementById("hello").textContent=data.user.full_name||tg.initDataUnsafe?.user?.first_name||"Сотрудник";
+      await load();
+    } catch(e) { setMessage(e.message||"Ошибка подключения к серверу",true); }
+  }
+  document.getElementById("refresh").addEventListener("click",()=>load().catch(e=>setMessage(e.message,true)));
+  start();
+})();
+</script>
+</body>
+</html>

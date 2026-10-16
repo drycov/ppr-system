@@ -14,7 +14,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import MenuButtonWebApp, Message, WebAppInfo
 
 logger = logging.getLogger("ppr.telegram_bot")
 _lock = threading.RLock()
@@ -168,6 +168,26 @@ async def _poll(token: str):
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     bot_identity = await bot.get_me()
     bot_username = (bot_identity.username or "").casefold()
+    # The URL is configured through Web UI; Telegram requires a public HTTPS URL.
+    settings_db = _db()
+    try:
+        from settings_service import get_setting
+        miniapp_url = str(get_setting(settings_db, "integrations.telegram.miniapp_url") or "").strip()
+    except Exception:
+        logger.exception("Could not load Telegram Mini App URL")
+        miniapp_url = ""
+    finally:
+        settings_db.close()
+    if miniapp_url.startswith("https://"):
+        try:
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="Открыть ППР",
+                    web_app=WebAppInfo(url=miniapp_url),
+                )
+            )
+        except Exception:
+            logger.exception("Could not configure Telegram Mini App menu button")
     dp = Dispatcher()
     _dispatcher = dp
 

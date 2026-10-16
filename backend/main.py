@@ -115,7 +115,7 @@ def update_system_settings(payload: dict, user: User = Depends(require_admin), d
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc))
-    if any(key in changed for key in ("integrations.telegram.bot_token", "integrations.telegram.enabled")):
+    if any(key in changed for key in ("integrations.telegram.bot_token", "integrations.telegram.enabled", "integrations.telegram.miniapp_url")):
         from telegram_bot import restart_telegram_bot
         restart_telegram_bot(db)
     return {"ok": True, "changed": changed, "settings": get_settings_snapshot(db)}
@@ -167,6 +167,104 @@ def import_system_settings(payload: dict, user: User = Depends(require_admin), d
 def list_settings_audit(limit: int = Query(100, ge=1, le=500), user: User = Depends(require_admin), db: Session = Depends(get_db)):
     rows = db.query(SettingsAudit).order_by(SettingsAudit.created_at.desc()).limit(limit).all()
     return [{"id": r.id, "actor": r.actor, "action": r.action, "changes": r.changes, "created_at": r.created_at.isoformat() if r.created_at else None} for r in rows]
+
+
+# ========== Telegram Mini App authentication ==========
+@app.post("/api/telegram-miniapp/auth")
+def telegram_miniapp_auth(payload: dict, db: Session = Depends(get_db)):
+    """Validate Telegram WebApp initData and issue a short-lived application JWT."""
+    import hashlib
+    import hmac
+    import json
+    import os
+    import time
+    from urllib.parse import parse_qsl
+
+    init_data = payload.get("init_data")
+    if not isinstance(init_data, str) or not init_data or len(init_data) > 8192:
+        raise HTTPException(status_code=400, detail="Некорректные данные Telegram Mini App")
+    try:
+        pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)
+        fields = dict(pairs)
+        if len(fields) != len(pairs):
+            raise ValueError("duplicate fields")
+        received_hash = fields.pop("hash", "")
+        auth_date = int(fields.get("auth_date", "0"))
+        telegram_user = json.loads(fields.get("user", "{}"))
+    except (ValueError, TypeError, json.JSONDecodeError):
+        raise HTTPException(status_code=401, detail="Не удалось проверить авторизацию Telegram")
+    if not received_hash or not isinstance(telegram_user, dict) or not telegram_user.get("id"):
+        raise HTTPException(status_code=401, detail="Telegram не передал данные пользователя")
+    now = int(time.time())
+    if auth_date > now + 60 or now - auth_date > 86400:
+        raise HTTPException(status_code=401, detail="Сессия Telegram устарела. Откройте Mini App заново.")
+    try:
+        from settings_service import get_setting
+        bot_token = get_setting(db, "integrations.telegram.bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    except Exception:
+        logger.exception("Cannot load Telegram bot token for Mini App auth")
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not bot_token:
+        raise HTTPException(status_code=503, detail="Telegram-бот не настроен в системе")
+    check_string = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()))
+    secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
+    expected_hash = hmac.new(secret_key, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected_hash, received_hash):
+        raise HTTPException(status_code=401, detail="Подпись Telegram недействительна")
+    telegram_id = str(telegram_user["id"])
+    user = db.query(User).filter(
+        User.telegram_chat_id == telegram_id,
+        User.telegram_status == "approved",
+        User.is_active.is_(True),
+    ).first()
+    if not user:
+        raise HTTPException(status_code=403, detail="Учётная запись не привязана или ожидает одобрения администратора")
+    access_token = create_access_token({"sub": user.username, "auth_method": "telegram_miniapp"})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "full_name": user.full_name or user.username,
+            "role": user.role,
+            "department_id": user.department_id,
+        },
+    }
+
+
+@app.get("/api/telegram-miniapp/duties")
+def telegram_miniapp_duties(
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Return only the authenticated employee's duty entries for the Mini App."""
+    from sqlalchemy import or_
+    start = from_date or date.today()
+    end = to_date or (start + timedelta(days=30))
+    if end < start or (end - start).days > 93:
+        raise HTTPException(status_code=422, detail="Период должен быть не более 94 дней")
+    rows = (
+        db.query(DutySchedule)
+        .outerjoin(Department, DutySchedule.department_id == Department.id)
+        .filter(
+            DutySchedule.user_id == user.id,
+            DutySchedule.duty_date >= start,
+            DutySchedule.duty_date <= end,
+            or_(DutySchedule.department_id.is_(None), Department.duty_enabled.is_(True)),
+        )
+        .order_by(DutySchedule.duty_date, DutySchedule.shift)
+        .all()
+    )
+    return [{
+        "id": row.id,
+        "duty_date": row.duty_date.isoformat(),
+        "shift": row.shift,
+        "notes": row.notes,
+        "department": row.department.name if row.department else "Все подразделения",
+    } for row in rows]
 
 
 # ========== Dashboard ==========

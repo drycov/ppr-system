@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f766e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="ППР ОСС" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/icons/ppr.svg" type="image/svg+xml" />
   <title>ППР ОСС / АПК — Satory UKG</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -2231,6 +2236,11 @@ async function renderStaff(el) {
       }
       lucide.createIcons();
     })();
+  </script>
+  <script>
+    if ("serviceWorker" in navigator && location.protocol !== "file:") {
+      window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(err => console.warn("PWA service worker registration failed", err)));
+    }
   </script>
 </body>
 </html>
