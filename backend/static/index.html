@@ -1797,7 +1797,10 @@
     }
 
 async function renderStaff(el) {
-      const staff = await api('/api/staff?active_only=false');
+      const [staff, telegramRegistrations] = await Promise.all([
+        api('/api/staff?active_only=false'),
+        api('/api/telegram/registrations').catch(() => [])
+      ]);
       const specLabel = { sysadmin: 'Сисадмин', installer: 'Монтажник', network_engineer: 'Сетевой инж.', head: 'Нач. ОСС' };
       const specCls = {
         sysadmin: 'bg-indigo-50 text-indigo-700',
@@ -1806,6 +1809,13 @@ async function renderStaff(el) {
         head: 'bg-violet-50 text-violet-800',
       };
       el.innerHTML = `
+        ${telegramRegistrations.length ? `<div class="bg-white rounded-xl border mb-4 overflow-hidden">
+          <div class="px-4 py-3 border-b"><h3 class="font-semibold">Заявки на привязку Telegram</h3><p class="text-xs text-slate-500">Одобрение разрешает сотруднику получать персональные уведомления и использовать команды дежурств.</p></div>
+          <div class="divide-y">${telegramRegistrations.map(r => `<div class="p-3 flex flex-wrap items-center gap-3 justify-between">
+            <div><div class="font-medium">${r.full_name || r.username}</div><div class="text-xs text-slate-500">${r.pending_phone || r.phone || 'Телефон не указан'} · ${r.position || 'Должность не указана'} · ${r.department_name || 'Подразделение не указано'} · Chat ID: ${r.telegram_chat_id}</div></div>
+            <div class="flex gap-2"><button data-telegram-approve="${r.id}" class="px-3 py-1.5 rounded bg-teal-700 text-white text-xs">Одобрить</button><button data-telegram-reject="${r.id}" class="px-3 py-1.5 rounded border border-red-200 text-red-700 text-xs">Отклонить</button></div>
+          </div>`).join('')}</div>
+        </div>` : ''}
         <div class="flex justify-between mb-4 items-center">
           <p class="text-sm text-slate-500">Направление ППР определяет, кому уходят автозадачи</p>
           <button onclick="openStaffModal()" class="px-4 py-2 bg-teal-700 text-white rounded-lg text-sm">+ Добавить</button>
@@ -1820,6 +1830,7 @@ async function renderStaff(el) {
               <th class="px-4 py-3">Роль</th>
               <th class="px-4 py-3">ППР</th>
               <th class="px-4 py-3">Дежурства</th>
+              <th class="px-4 py-3">Telegram</th>
               <th class="px-4 py-3">Статус</th>
             </tr></thead>
             <tbody>
@@ -1835,6 +1846,7 @@ async function renderStaff(el) {
                 <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${s.role}</span></td>
                 <td class="px-4 py-3">${s.can_do_ppr ? '✓' : '—'}</td>
                 <td class="px-4 py-3">${s.can_duty ? '✓' : '—'}</td>
+                <td class="px-4 py-3 text-xs">${s.telegram_status === 'approved' ? '<span class="text-teal-700">привязан</span>' : s.telegram_status === 'pending' ? '<span class="text-amber-700">ожидает</span>' : '<span class="text-slate-400">не привязан</span>'}${s.telegram_chat_id && s.telegram_status === 'approved' ? '<div class="text-slate-400 font-mono">' + s.telegram_chat_id + '</div>' : ''}</td>
                 <td class="px-4 py-3">${s.is_active ? '<span class="text-teal-700">активен</span>' : '<span class="text-slate-400">откл.</span>'}</td>
               </tr>`).join('')}
             </tbody>
@@ -1842,6 +1854,14 @@ async function renderStaff(el) {
         </div>
         <p class="text-xs text-slate-500 mt-2">Всего: ${staff.length}</p>
       `;
+      el.querySelectorAll('[data-telegram-approve]').forEach(btn => btn.addEventListener('click', async () => {
+        try { await api('/api/telegram/registrations/' + btn.dataset.telegramApprove + '/approve', { method: 'POST' }); toast('Привязка Telegram одобрена'); await renderStaff(el); }
+        catch (e) { toast(e.message || 'Не удалось одобрить заявку', 'error'); }
+      }));
+      el.querySelectorAll('[data-telegram-reject]').forEach(btn => btn.addEventListener('click', async () => {
+        try { await api('/api/telegram/registrations/' + btn.dataset.telegramReject + '/reject', { method: 'POST' }); toast('Заявка отклонена'); await renderStaff(el); }
+        catch (e) { toast(e.message || 'Не удалось отклонить заявку', 'error'); }
+      }));
     }
     async function openStaffModal() {
       const [deps, positions, roles] = await Promise.all([

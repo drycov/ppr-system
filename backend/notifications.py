@@ -92,5 +92,11 @@ def notify_today_duties(db):
     )
     if not duties:
         return
-    names = ", ".join((d.user.full_name or d.user.username) for d in duties if d.user)
-    notify_message(db, "duty", f"Сегодня дежурит: {names}", {"date": today.isoformat()})
+    # Same employee can have a global duty and a department-specific duty on one date.
+    unique = {}
+    for duty in duties:
+        if duty.user:
+            unique.setdefault(duty.user_id, duty.user.full_name or duty.user.username)
+    names = ", ".join(dict.fromkeys(unique.values()))
+    if names:
+        notify_message(db, "duty", f"Сегодня дежурит: {names}", {"date": today.isoformat()})
