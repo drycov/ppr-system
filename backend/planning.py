@@ -98,6 +98,43 @@ def get_users_by_specialty(db: Session, specialty: str | None, department_id: in
     return users
 
 
+def resolve_assignee_for_object(
+    db: Session,
+    template: PPRTemplate,
+    obj: Object,
+    planned: date,
+    index: int,
+    prefer_duty: bool | None = None,
+    department_id: int | None = None,
+) -> tuple:
+    """Для объектных ежедневных задач сначала используем назначенного ответственного объекта."""
+    responsible = (obj.responsible_default or "").strip().casefold()
+    if responsible:
+        candidates = (
+            db.query(User)
+            .filter(
+                User.is_active == True,
+                User.can_do_ppr == True,
+                User.department_id == department_id if department_id is not None else True,
+            )
+            .order_by(User.id)
+            .all()
+        )
+        for user in candidates:
+            identifiers = {
+                (user.username or "").strip().casefold(),
+                (user.full_name or "").strip().casefold(),
+                " ".join(filter(None, [user.surname, user.first_name, user.patronymic])).strip().casefold(),
+            }
+            identifiers.discard("")
+            if responsible in identifiers:
+                return user, False, user.full_name or user.username
+    return resolve_assignee_for_template(
+        db, template, planned, index,
+        prefer_duty=prefer_duty, department_id=department_id,
+    )
+
+
 def resolve_assignee_for_template(
     db: Session,
     template: PPRTemplate,
@@ -337,9 +374,17 @@ def generate_plans_for_period(
                         skipped += 1
                         continue
 
-                user, by_d, responsible = resolve_assignee_for_template(
-                    db, tpl, planned, oidx + tidx, prefer_duty=prefer_duty, department_id=department_id
-                )
+                assign = resolve_assignee_for_object if tpl.periodicity == "daily" else resolve_assignee_for_template
+                if assign is resolve_assignee_for_object:
+                    user, by_d, responsible = assign(
+                        db, tpl, obj, planned, oidx + tidx,
+                        prefer_duty=prefer_duty, department_id=department_id,
+                    )
+                else:
+                    user, by_d, responsible = assign(
+                        db, tpl, planned, oidx + tidx,
+                        prefer_duty=prefer_duty, department_id=department_id,
+                    )
                 if by_d:
                     by_duty += 1
                 if not user and obj.responsible_default:
