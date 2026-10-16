@@ -317,7 +317,13 @@ def generate_plans_for_period(
     department = db.query(Department).filter(Department.id == department_id).first() if department_id is not None else None
     network_department = is_network_department(department)
     if department_id is not None:
-        templates = [t for t in templates if (not (t.department_ids or []) or department_id in (t.department_ids or [])) and department_id not in (t.excluded_department_ids or [])]
+        excluded_template_ids = set(department.excluded_template_ids or []) if department else set()
+        templates = [
+            t for t in templates
+            if t.id not in excluded_template_ids
+            and (not (t.department_ids or []) or department_id in (t.department_ids or []))
+            and department_id not in (t.excluded_department_ids or [])
+        ]
     if not include_daily_templates:
         templates = [t for t in templates if t.periodicity != "daily"]
 
