@@ -87,5 +87,30 @@ class PPRCoverageTests(unittest.TestCase):
         workbook.close()
 
 
+    def test_us_address_entities_are_counted_by_type(self):
+        us = Object(code="US-01", name="Узел связи", object_type="us", status="active")
+        self.db.add(us)
+        self.db.commit()
+        addresses = []
+        for prefix, object_type, count in (("OVN", "ovn", 27), ("INT", "camera_integration", 1), ("LU", "lu", 4), ("P", "p", 4)):
+            for index in range(1, count + 1):
+                addresses.append(Object(
+                    code=f"{prefix}-{index:03d}",
+                    name=f"{prefix} address {index}",
+                    object_type=object_type,
+                    status="active",
+                    parent_us_id=us.id,
+                ))
+        self.db.add_all(addresses)
+        self.db.commit()
+
+        rows = self.db.query(Object.object_type, __import__("sqlalchemy").func.count(Object.id)).filter(
+            Object.parent_us_id == us.id,
+            Object.status != "decommissioned",
+        ).group_by(Object.object_type).all()
+        counts = dict(rows)
+        self.assertEqual(sum(counts.values()), 36)
+        self.assertEqual(counts, {"ovn": 27, "camera_integration": 1, "lu": 4, "p": 4})
+
 if __name__ == "__main__":
     unittest.main()
