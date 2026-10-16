@@ -2,7 +2,7 @@
 from datetime import date, timedelta
 from calendar import monthrange
 from sqlalchemy.orm import Session
-from models import Object, PPRTemplate, PPRPlan, User, DutySchedule, Department
+from models import Object, PPRTemplate, PPRPlan, User, DutySchedule, Department, ResponsibilityZone
 from settings_service import get_setting
 
 
@@ -98,6 +98,52 @@ def get_users_by_specialty(db: Session, specialty: str | None, department_id: in
     return users
 
 
+def _zone_assignee(
+    db: Session,
+    template: PPRTemplate,
+    department_id: int | None,
+    obj: Object | None = None,
+) -> tuple | None:
+    """Находит наиболее специфичную активную зону для регламента и объекта."""
+    if department_id is None:
+        return None
+    zones = (
+        db.query(ResponsibilityZone)
+        .filter(
+            ResponsibilityZone.department_id == department_id,
+            ResponsibilityZone.template_id == template.id,
+            ResponsibilityZone.is_active == True,
+        )
+        .order_by(ResponsibilityZone.id)
+        .all()
+    )
+    ranked = []
+    for zone in zones:
+        types = zone.object_types or []
+        object_ids = zone.object_ids or []
+        if obj is None:
+            # Для общей задачи подходит только зона всего регламента.
+            if types or object_ids:
+                continue
+            rank = 2
+        elif object_ids:
+            if obj.id not in object_ids:
+                continue
+            rank = 0
+        elif types:
+            if obj.object_type not in types:
+                continue
+            rank = 1
+        else:
+            rank = 2
+        ranked.append((rank, zone.id, zone))
+    for _, _, zone in sorted(ranked, key=lambda item: (item[0], item[1])):
+        assignee = zone.assignee
+        if assignee and assignee.is_active and assignee.can_do_ppr and assignee.department_id == department_id:
+            return assignee, False, assignee.full_name or assignee.username
+    return None
+
+
 def resolve_assignee_for_object(
     db: Session,
     template: PPRTemplate,
@@ -107,7 +153,10 @@ def resolve_assignee_for_object(
     prefer_duty: bool | None = None,
     department_id: int | None = None,
 ) -> tuple:
-    """Для объектных ежедневных задач сначала используем назначенного ответственного объекта."""
+    """Сначала используем зону ответственности регламента, затем legacy-поле объекта."""
+    zone_assignment = _zone_assignee(db, template, department_id, obj)
+    if zone_assignment:
+        return zone_assignment
     responsible = (obj.responsible_default or "").strip().casefold()
     if responsible:
         candidates = (
@@ -149,6 +198,9 @@ def resolve_assignee_for_template(
     3) дежурный (для daily)
     4) round-robin среди подходящих
     """
+    zone_assignment = _zone_assignee(db, template, department_id)
+    if zone_assignment:
+        return zone_assignment
     if prefer_duty is None:
         prefer_duty = bool(get_setting(db, "planning.prefer_duty")) and bool(get_setting(db, "duty.enabled"))
     direction = (template.work_direction or "network_engineer").strip()
@@ -265,7 +317,13 @@ def generate_plans_for_period(
     department = db.query(Department).filter(Department.id == department_id).first() if department_id is not None else None
     network_department = is_network_department(department)
     if department_id is not None:
-        templates = [t for t in templates if (not (t.department_ids or []) or department_id in (t.department_ids or [])) and department_id not in (t.excluded_department_ids or [])]
+        excluded_template_ids = set(department.excluded_template_ids or []) if department else set()
+        templates = [
+            t for t in templates
+            if t.id not in excluded_template_ids
+            and (not (t.department_ids or []) or department_id in (t.department_ids or []))
+            and department_id not in (t.excluded_department_ids or [])
+        ]
     if not include_daily_templates:
         templates = [t for t in templates if t.periodicity != "daily"]
 
@@ -374,17 +432,11 @@ def generate_plans_for_period(
                         skipped += 1
                         continue
 
-                assign = resolve_assignee_for_object if tpl.periodicity == "daily" else resolve_assignee_for_template
-                if assign is resolve_assignee_for_object:
-                    user, by_d, responsible = assign(
-                        db, tpl, obj, planned, oidx + tidx,
-                        prefer_duty=prefer_duty, department_id=department_id,
-                    )
-                else:
-                    user, by_d, responsible = assign(
-                        db, tpl, planned, oidx + tidx,
-                        prefer_duty=prefer_duty, department_id=department_id,
-                    )
+                assign = resolve_assignee_for_object
+                user, by_d, responsible = assign(
+                    db, tpl, obj, planned, oidx + tidx,
+                    prefer_duty=prefer_duty, department_id=department_id,
+                )
                 if by_d:
                     by_duty += 1
                 if not user and obj.responsible_default:

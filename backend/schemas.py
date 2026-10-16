@@ -443,3 +443,38 @@ class SystemRoleCreate(BaseModel):
     name: str
     description: Optional[str] = None
     is_active: bool = True
+
+
+class ResponsibilityZoneBase(BaseModel):
+    name: str
+    department_id: int
+    template_id: int
+    assignee_id: Optional[int] = None
+    object_types: List[str] = []
+    object_ids: List[int] = []
+    is_active: bool = True
+    notes: Optional[str] = None
+
+
+class ResponsibilityZoneCreate(ResponsibilityZoneBase):
+    pass
+
+
+class ResponsibilityZoneUpdate(BaseModel):
+    name: Optional[str] = None
+    department_id: Optional[int] = None
+    template_id: Optional[int] = None
+    assignee_id: Optional[int] = None
+    object_types: Optional[List[str]] = None
+    object_ids: Optional[List[int]] = None
+    is_active: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class ResponsibilityZoneOut(ResponsibilityZoneBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
