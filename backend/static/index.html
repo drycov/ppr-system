@@ -115,6 +115,84 @@
     .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.08); }
     .table-row:hover { background: #f8fafc; }
   </style>
+
+  <style id="ppr-design-system">
+    :root {
+      color-scheme: light;
+      --ui-bg: #f4f7fb; --ui-surface: #ffffff; --ui-surface-muted: #f8fafc;
+      --ui-border: #dfe6ef; --ui-border-strong: #cbd5e1; --ui-text: #172033;
+      --ui-text-muted: #64748b; --ui-primary: #0f766e; --ui-primary-hover: #115e59;
+      --ui-primary-soft: #e6f4f1; --ui-radius-sm: 8px; --ui-radius: 12px;
+      --ui-radius-lg: 16px; --ui-shadow: 0 1px 2px rgba(15,23,42,.04), 0 6px 20px rgba(15,23,42,.035);
+      --ui-focus: 0 0 0 3px rgba(15,118,110,.15);
+    }
+    html { background: var(--ui-bg); }
+    body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--ui-bg); color: var(--ui-text); font-size: 14px; line-height: 1.5; }
+    button, input, select, textarea { font: inherit; }
+    button, [role="button"] { transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, transform .15s ease; }
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; box-shadow: var(--ui-focus); }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]), select, textarea {
+      min-height: 40px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); background: #fff; color: var(--ui-text); padding: 9px 12px; box-shadow: none;
+    }
+    textarea { min-height: 88px; resize: vertical; }
+    input::placeholder, textarea::placeholder { color: #94a3b8; }
+    input[type="checkbox"], input[type="radio"] { accent-color: var(--ui-primary); }
+    input[type="color"] { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: #fff; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    .sidebar-link { border-radius: var(--ui-radius-sm) !important; border-right: 0 !important; margin: 2px 0; }
+    .sidebar-link.active { color: var(--ui-primary) !important; background: var(--ui-primary-soft) !important; box-shadow: inset 3px 0 0 var(--ui-primary); }
+    #nav { padding: 12px; }
+    aside { scrollbar-width: thin; }
+    .card, [class*="rounded-2xl"][class*="border"], [class*="rounded-xl"][class*="border"] { border-color: var(--ui-border); }
+    .card { border-radius: var(--ui-radius-lg); background: var(--ui-surface); box-shadow: var(--ui-shadow); }
+    .card:hover { box-shadow: 0 8px 24px rgba(15,23,42,.07); }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    thead th { background: var(--ui-surface-muted); color: #475569; font-size: 11px; font-weight: 700; letter-spacing: .045em; text-transform: uppercase; }
+    th, td { border-color: #e8edf4 !important; }
+    th { padding-top: 11px !important; padding-bottom: 11px !important; }
+    td { vertical-align: middle; }
+    .table-row:hover, tbody tr:hover { background: #f6faf9; }
+    .status-planned { background: #fff4d6 !important; color: #8a5200 !important; }
+    .status-done { background: #dff5e9 !important; color: #176744 !important; }
+    .status-overdue { background: #fee8e7 !important; color: #a12828 !important; }
+    .status-in_progress { background: #e5efff !important; color: #2456a6 !important; }
+    .status-planned, .status-done, .status-overdue, .status-in_progress { border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 650; white-space: nowrap; }
+    .bg-teal-700, .bg-teal-800 { background-color: var(--ui-primary) !important; }
+    .hover\:bg-teal-800:hover, .hover\:bg-teal-900:hover { background-color: var(--ui-primary-hover) !important; }
+    .text-teal-700, .text-teal-800 { color: var(--ui-primary) !important; }
+    .border-teal-500, .border-teal-600 { border-color: var(--ui-primary) !important; }
+    .focus\:border-teal-500:focus { border-color: var(--ui-primary) !important; box-shadow: var(--ui-focus) !important; }
+    .bg-teal-50 { background-color: var(--ui-primary-soft) !important; }
+    .rounded-3xl { border-radius: 20px !important; }
+    .rounded-2xl { border-radius: var(--ui-radius-lg) !important; }
+    .rounded-xl { border-radius: var(--ui-radius) !important; }
+    .rounded-lg { border-radius: var(--ui-radius-sm) !important; }
+    .shadow, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl { box-shadow: var(--ui-shadow) !important; }
+    .modal, [role="dialog"] { color: var(--ui-text); }
+    .modal-header, [data-modal-header] { border-bottom: 1px solid var(--ui-border); }
+    .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #e8edf4 !important; }
+    h1, h2, h3, h4 { color: var(--ui-text); letter-spacing: -.015em; }
+    .text-slate-400 { color: #8794a8 !important; }
+    .text-slate-500 { color: var(--ui-text-muted) !important; }
+    .text-slate-600 { color: #526176 !important; }
+    .text-slate-700, .text-slate-800, .text-slate-900 { color: var(--ui-text) !important; }
+    .bg-slate-50 { background-color: var(--ui-bg) !important; }
+    .border-slate-100, .border-slate-200 { border-color: var(--ui-border) !important; }
+    .bg-white { background-color: var(--ui-surface) !important; }
+    .bg-slate-950 { background-color: #14212e !important; }
+    .hover\:bg-slate-50:hover { background-color: #f1f6f8 !important; }
+    #login-overlay { background: linear-gradient(135deg, #0f766e 0%, #123047 100%) !important; }
+    #login-overlay form input { width: 100%; }
+    @media (max-width: 768px) {
+      body { font-size: 13px; }
+      .sidebar-link { padding: 10px !important; }
+      th, td { padding-left: 10px !important; padding-right: 10px !important; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
+    }
+  </style>
+
 </head>
 <body class="bg-slate-50 text-slate-800">
   <!-- Login overlay -->
