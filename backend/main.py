@@ -964,7 +964,7 @@ def list_duties(
 ):
     if user.role not in ("admin", "head"):
         raise HTTPException(403, "Графики дежурств доступны администратору и руководителям подразделений")
-    q = db.query(DutySchedule).options(joinedload(DutySchedule.user))
+    q = db.query(DutySchedule).join(Department, DutySchedule.department_id == Department.id).options(joinedload(DutySchedule.user)).filter(Department.duty_enabled == True, Department.is_active == True)
     if user.role == "head":
         q = q.filter((DutySchedule.department_id == user.department_id) | (DutySchedule.department_id.is_(None)))
     if from_date:
@@ -987,7 +987,9 @@ def duty_today(user: User = Depends(require_user), db: Session = Depends(get_db)
     today = date.today()
     duties = (
         db.query(DutySchedule)
+        .join(Department, DutySchedule.department_id == Department.id)
         .options(joinedload(DutySchedule.user))
+        .filter(Department.duty_enabled == True, Department.is_active == True)
         .filter(DutySchedule.duty_date == today)
         .filter(
             ((DutySchedule.department_id == user.department_id) | (DutySchedule.department_id.is_(None)))
@@ -1072,6 +1074,8 @@ def create_duties_bulk(data: schemas.DutyBulkCreate, user: User = Depends(requir
         department = db.query(Department).filter(Department.id == data.department_id).first()
         if not department or not department.is_active:
             raise HTTPException(422, "Подразделение не найдено или неактивно")
+        if not department.duty_enabled:
+            raise HTTPException(422, "Это подразделение исключено из дежурств")
         if staff.department_id != data.department_id:
             raise HTTPException(422, "Для графика подразделения выберите сотрудника этого подразделения")
     dates = sorted(set(data.dates))
