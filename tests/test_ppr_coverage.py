@@ -74,7 +74,7 @@ class PPRCoverageTests(unittest.TestCase):
         self.assertTrue(all(plan.responsible == owner.full_name for plan in plans))
 
     def test_responsibility_zones_assign_by_regulation_and_object_scope(self):
-        department = Department(name="Отдел сетей", is_active=True, duty_enabled=True)
+        department = Department(name="Отдел системного администрирования", is_active=True, duty_enabled=True)
         self.db.add(department)
         self.db.commit()
         general_owner = User(
