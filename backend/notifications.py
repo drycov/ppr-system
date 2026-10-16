@@ -99,4 +99,4 @@ def notify_today_duties(db):
             unique.setdefault(duty.user_id, duty.user.full_name or duty.user.username)
     names = ", ".join(dict.fromkeys(unique.values()))
     if names:
-        notify_message(db, "duty", f"Сегодня дежурят: {names}", {"date": today.isoformat(), "user_ids": list(unique)})
+        notify_message(db, "duty", f"Сегодня дежурит: {names}", {"date": today.isoformat()})
