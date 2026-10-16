@@ -48,6 +48,10 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    object_columns = {column["name"] for column in inspect(engine).get_columns("objects")}
+    if "parent_us_id" not in object_columns:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TABLE objects ADD COLUMN parent_us_id INTEGER REFERENCES objects(id)")
     department_columns = {column["name"] for column in inspect(engine).get_columns("departments")}
     if "duty_enabled" not in department_columns:
         with engine.begin() as conn:
@@ -305,8 +309,10 @@ def get_dashboard(db: Session = Depends(get_db)):
 def list_object_types():
     """Справочник типов объектов для UI."""
     return [
-        {"code": "camera_integration", "name": "ИНТ (камеры)", "group": "apk"},
-        {"code": "ovn", "name": "ОВН", "group": "apk"},
+        {"code": "camera_integration", "name": "Интеграция", "group": "us_addresses"},
+        {"code": "ovn", "name": "ОВН", "group": "us_addresses"},
+        {"code": "lu", "name": "ЛУ (локационный узел)", "group": "us_addresses"},
+        {"code": "p", "name": "П", "group": "us_addresses"},
         {"code": "voles", "name": "ВОЛС", "group": "apk"},
         {"code": "sip", "name": "СИП", "group": "apk"},
         {"code": "us", "name": "УС (узел связи)", "group": "network"},
@@ -347,6 +353,53 @@ def list_objects(
     return q.order_by(Object.code).offset(skip).limit(limit).all()
 
 
+US_ADDRESS_TYPES = {
+    "ovn": "ОВН",
+    "camera_integration": "Интеграция",
+    "lu": "ЛУ",
+    "p": "П",
+}
+
+
+def _validate_us_parent(db: Session, object_type: str, parent_us_id: Optional[int], current_id: Optional[int] = None):
+    if object_type == "us":
+        if parent_us_id is not None:
+            raise HTTPException(422, "Узел связи не может быть дочерним адресом другого УС")
+        if current_id is not None and db.query(Object).filter(Object.parent_us_id == current_id).first():
+            raise HTTPException(409, "Сначала отвяжите адреса от этого УС или назначьте им другой УС")
+        return
+    if parent_us_id is not None:
+        if object_type not in US_ADDRESS_TYPES:
+            raise HTTPException(422, "К УС можно привязывать только адреса типов ОВН, Интеграция, ЛУ и П")
+        parent = db.query(Object).filter(Object.id == parent_us_id).first()
+        if not parent or parent.object_type != "us":
+            raise HTTPException(422, "Родительский объект должен быть узлом связи (УС)")
+        if current_id is not None and parent_us_id == current_id:
+            raise HTTPException(422, "Объект не может быть родителем самого себя")
+
+
+@app.get("/api/objects/{object_id}/address-summary")
+def get_us_address_summary(object_id: int, db: Session = Depends(get_db)):
+    us = db.query(Object).filter(Object.id == object_id, Object.object_type == "us").first()
+    if not us:
+        raise HTTPException(404, "Узел связи не найден")
+    rows = db.query(Object.object_type, func.count(Object.id)).filter(
+        Object.parent_us_id == us.id,
+        Object.status != "decommissioned",
+    ).group_by(Object.object_type).all()
+    counts = {code: 0 for code in US_ADDRESS_TYPES}
+    for code, count in rows:
+        if code in counts:
+            counts[code] = count
+    return {
+        "us_id": us.id,
+        "us_code": us.code,
+        "total": sum(counts.values()),
+        "counts": counts,
+        "types": [{"code": code, "name": name, "count": counts[code]} for code, name in US_ADDRESS_TYPES.items()],
+    }
+
+
 @app.get("/api/objects/{object_id}", response_model=schemas.ObjectOut)
 def get_object(object_id: int, db: Session = Depends(get_db)):
     obj = db.query(Object).filter(Object.id == object_id).first()
@@ -359,7 +412,9 @@ def get_object(object_id: int, db: Session = Depends(get_db)):
 def create_object(data: schemas.ObjectCreate, db: Session = Depends(get_db)):
     if db.query(Object).filter(Object.code == data.code).first():
         raise HTTPException(400, "Объект с таким кодом уже существует")
-    obj = Object(**data.model_dump())
+    payload = data.model_dump()
+    _validate_us_parent(db, payload.get("object_type"), payload.get("parent_us_id"))
+    obj = Object(**payload)
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -372,6 +427,7 @@ def update_object(object_id: int, data: schemas.ObjectUpdate, db: Session = Depe
     if not obj:
         raise HTTPException(404, "Объект не найден")
     payload = data.model_dump(exclude_unset=True)
+    _validate_us_parent(db, payload.get("object_type", obj.object_type), payload.get("parent_us_id", obj.parent_us_id), current_id=obj.id)
     if "code" in payload and payload["code"] != obj.code:
         exists = db.query(Object).filter(Object.code == payload["code"], Object.id != object_id).first()
         if exists:
