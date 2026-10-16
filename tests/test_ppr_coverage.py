@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database import Base
-from models import Department, DailyCheck, Object, PPRPlan, PPRTemplate, User
+from models import Department, DailyCheck, Object, PPRPlan, PPRTemplate, User, ResponsibilityZone
 from planning import _planned_dates_for_period, generate_plans_for_period
 from report_service import export_ppr_period_report
 
@@ -72,6 +72,60 @@ class PPRCoverageTests(unittest.TestCase):
         self.assertEqual(len(plans), 31)
         self.assertTrue(all(plan.assignee_id == owner.id for plan in plans))
         self.assertTrue(all(plan.responsible == owner.full_name for plan in plans))
+
+    def test_responsibility_zones_assign_by_regulation_and_object_scope(self):
+        department = Department(name="Отдел сетей", is_active=True, duty_enabled=True)
+        self.db.add(department)
+        self.db.commit()
+        general_owner = User(
+            username="network-owner", full_name="Сетевой инженер",
+            department_id=department.id, is_active=True, can_do_ppr=True,
+            ppr_specialty="network_engineer",
+        )
+        specific_owner = User(
+            username="cod-owner", full_name="Инженер ЦОД",
+            department_id=department.id, is_active=True, can_do_ppr=True,
+            ppr_specialty="sysadmin",
+        )
+        cod_one = Object(code="COD-01", name="ЦОД 1", object_type="cod", status="active")
+        cod_two = Object(code="COD-02", name="ЦОД 2", object_type="cod", status="active")
+        template = PPRTemplate(
+            code="COD-DAILY", name="Ежедневный контроль ЦОД",
+            object_types=["cod"], work_items=["Проверить состояние"],
+            periodicity="daily", work_direction="network_engineer", is_active=True,
+            department_ids=[], excluded_department_ids=[],
+        )
+        self.db.add_all([general_owner, specific_owner, cod_one, cod_two, template])
+        self.db.commit()
+        self.db.add_all([
+            ResponsibilityZone(
+                name="Общая зона ЦОД", department_id=department.id,
+                template_id=template.id, assignee_id=general_owner.id,
+                object_types=["cod"], object_ids=[], is_active=True,
+            ),
+            ResponsibilityZone(
+                name="ЦОД 1 — персональная зона", department_id=department.id,
+                template_id=template.id, assignee_id=specific_owner.id,
+                object_types=[], object_ids=[cod_one.id], is_active=True,
+            ),
+        ])
+        self.db.commit()
+
+        generate_plans_for_period(
+            self.db, 2026, 10, only_without_plan=True,
+            prefer_duty=False, include_daily_templates=True,
+            department_id=department.id,
+        )
+        one_plans = self.db.query(PPRPlan).filter_by(
+            department_id=department.id, object_id=cod_one.id
+        ).all()
+        two_plans = self.db.query(PPRPlan).filter_by(
+            department_id=department.id, object_id=cod_two.id
+        ).all()
+        self.assertEqual(len(one_plans), 31)
+        self.assertEqual(len(two_plans), 31)
+        self.assertTrue(all(plan.assignee_id == specific_owner.id for plan in one_plans))
+        self.assertTrue(all(plan.assignee_id == general_owner.id for plan in two_plans))
 
     def test_daily_template_creates_per_object_per_day_without_duplicates(self):
         department = Department(name="ОСС", is_active=True, duty_enabled=True)
