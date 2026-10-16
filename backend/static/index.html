@@ -120,6 +120,36 @@
     .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.08); }
     .table-row:hover { background: #f8fafc; }
 
+
+    /* Responsive tables: scroll wide datasets, turn compact datasets into readable cards. */
+    .mobile-table-scroll { position: relative; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+    .mobile-table-scroll > table { border-collapse: separate; border-spacing: 0; }
+    .mobile-table-scroll > table thead th { position: sticky; top: 0; z-index: 2; }
+    @media (max-width: 767px) {
+      #content .mobile-table-scroll { margin-left: -2px; margin-right: -2px; max-width: calc(100% + 4px); border-radius: 12px; }
+      #content .mobile-table-scroll:not(.mobile-table-stack) { border: 1px solid #e2e8f0; }
+      #content .mobile-table-scroll:not(.mobile-table-stack)::after { content: 'Прокрутите таблицу по горизонтали →'; display: block; position: sticky; left: 0; width: max-content; padding: 5px 10px; color: #64748b; background: #f8fafc; border-top: 1px solid #e2e8f0; font-size: 11px; }
+      #content .mobile-table-scroll:not(.mobile-table-stack) table { min-width: 620px; }
+      #content .mobile-table-scroll:not(.mobile-table-stack) th,
+      #content .mobile-table-scroll:not(.mobile-table-stack) td { padding: 9px 10px; white-space: normal; vertical-align: top; }
+      #content .mobile-table-scroll:not(.mobile-table-stack) tbody tr > :first-child { position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 0 #e2e8f0; }
+      #content .mobile-table-scroll:not(.mobile-table-stack) thead tr > :first-child { left: 0; z-index: 3; background: #f8fafc; }
+      #content .mobile-table-scroll.mobile-table-stack { overflow: visible; border: 0; margin: 0; max-width: 100%; }
+      #content .mobile-table-stack > table,
+      #content .mobile-table-stack > table tbody { display: block; width: 100%; min-width: 0 !important; }
+      #content .mobile-table-stack > table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+      #content .mobile-table-stack > table tbody { display: grid; gap: 10px; }
+      #content .mobile-table-stack > table tbody tr { display: block; min-width: 0; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+      #content .mobile-table-stack > table tbody td { display: grid; grid-template-columns: minmax(92px, 38%) minmax(0, 1fr); gap: 10px; align-items: start; min-width: 0; padding: 10px 12px; border-bottom: 1px solid #f1f5f9; overflow-wrap: anywhere; white-space: normal; }
+      #content .mobile-table-stack > table tbody td:last-child { border-bottom: 0; }
+      #content .mobile-table-stack > table tbody td::before { content: attr(data-mobile-label); color: #64748b; font-size: 11px; font-weight: 600; line-height: 1.45; }
+      #content .mobile-table-stack > table tbody td[colspan] { display: block; text-align: center; }
+      #content .mobile-table-stack > table tbody td[colspan]::before { content: none; }
+      #content .mobile-table-stack > table tbody td[rowspan] { align-items: start; }
+      #content .mobile-table-stack > table tbody td > * { min-width: 0; max-width: 100%; }
+      #content .mobile-table-stack > table tbody tr:hover { background: #fff; }
+    }
+
     /* Mobile-first PWA layout */
     html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
     body { overscroll-behavior-y: contain; }
@@ -2324,5 +2354,43 @@ async function renderStaff(el) {
       window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(err => console.warn("PWA service worker registration failed", err)));
     }
   </script>
+
+  <script>
+    // Re-run after each dynamically rendered page; do not modify complex calendar/matrix tables.
+    (function installResponsiveTables() {
+      function enhanceTables(root) {
+        (root || document).querySelectorAll('#content table').forEach(table => {
+          if (table.closest('.mobile-table-scroll')) return;
+          const headers = Array.from(table.querySelectorAll(':scope > thead > tr:last-child > th, :scope > thead > tr:last-child > td'));
+          const rows = Array.from(table.querySelectorAll(':scope > tbody > tr'));
+          const simple = headers.length >= 2 && headers.length <= 4 && rows.length > 0 &&
+            rows.every(row => row.querySelectorAll(':scope > td, :scope > th').length === headers.length &&
+              !row.querySelector('[colspan], [rowspan]'));
+          const wrapper = document.createElement('div');
+          wrapper.className = 'mobile-table-scroll' + (simple ? ' mobile-table-stack' : '');
+          table.parentNode.insertBefore(wrapper, table);
+          wrapper.appendChild(table);
+          if (simple) {
+            rows.forEach(row => {
+              Array.from(row.querySelectorAll(':scope > td, :scope > th')).forEach((cell, index) => {
+                cell.setAttribute('data-mobile-label', (headers[index].textContent || '').trim() || 'Поле');
+              });
+            });
+          }
+        });
+      }
+      function start() {
+        enhanceTables(document);
+        const content = document.getElementById('content');
+        if (content && !content.dataset.responsiveTablesObserver) {
+          content.dataset.responsiveTablesObserver = '1';
+          new MutationObserver(() => enhanceTables(content)).observe(content, { childList: true, subtree: true });
+        }
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+      else start();
+    })();
+  </script>
+
 </body>
 </html>
