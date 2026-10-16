@@ -1797,143 +1797,96 @@
     }
 
 async function renderStaff(el) {
-      const [staff, telegramRegistrations] = await Promise.all([
+      const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const [staff, telegramRegistrations, departments, positions, roles] = await Promise.all([
         api('/api/staff?active_only=false'),
-        api('/api/telegram/registrations').catch(() => [])
+        CURRENT_USER && CURRENT_USER.role === 'admin' ? api('/api/telegram/registrations').catch(() => []) : Promise.resolve([]),
+        api('/api/departments').catch(() => []), api('/api/positions').catch(() => []), api('/api/roles').catch(() => [])
       ]);
-      const specLabel = { sysadmin: 'Сисадмин', installer: 'Монтажник', network_engineer: 'Сетевой инж.', head: 'Нач. ОСС' };
-      const specCls = {
-        sysadmin: 'bg-indigo-50 text-indigo-700',
-        installer: 'bg-amber-50 text-amber-800',
-        network_engineer: 'bg-sky-50 text-sky-800',
-        head: 'bg-violet-50 text-violet-800',
-      };
-      el.innerHTML = `
-        ${telegramRegistrations.length ? `<div class="bg-white rounded-xl border mb-4 overflow-hidden">
-          <div class="px-4 py-3 border-b"><h3 class="font-semibold">Заявки на привязку Telegram</h3><p class="text-xs text-slate-500">Одобрение разрешает сотруднику получать персональные уведомления и использовать команды дежурств.</p></div>
-          <div class="divide-y">${telegramRegistrations.map(r => `<div class="p-3 flex flex-wrap items-center gap-3 justify-between">
-            <div><div class="font-medium">${r.full_name || r.username}</div><div class="text-xs text-slate-500">${r.pending_phone || r.phone || 'Телефон не указан'} · ${r.position || 'Должность не указана'} · ${r.department_name || 'Подразделение не указано'} · Chat ID: ${r.telegram_chat_id}</div></div>
-            <div class="flex gap-2"><button data-telegram-approve="${r.id}" class="px-3 py-1.5 rounded bg-teal-700 text-white text-xs">Одобрить</button><button data-telegram-reject="${r.id}" class="px-3 py-1.5 rounded border border-red-200 text-red-700 text-xs">Отклонить</button></div>
-          </div>`).join('')}</div>
-        </div>` : ''}
-        <div class="flex justify-between mb-4 items-center">
-          <p class="text-sm text-slate-500">Направление ППР определяет, кому уходят автозадачи</p>
-          <button onclick="openStaffModal()" class="px-4 py-2 bg-teal-700 text-white rounded-lg text-sm">+ Добавить</button>
-        </div>
-        <div class="bg-white rounded-xl border overflow-hidden">
-          <table class="w-full text-sm">
-            <thead class="bg-slate-50 text-left"><tr>
-              <th class="px-4 py-3">ФИО</th>
-              <th class="px-4 py-3">Логин</th>
-              <th class="px-4 py-3">Должность</th>
-              <th class="px-4 py-3">Направление ППР</th>
-              <th class="px-4 py-3">Роль</th>
-              <th class="px-4 py-3">ППР</th>
-              <th class="px-4 py-3">Дежурства</th>
-              <th class="px-4 py-3">Telegram</th>
-              <th class="px-4 py-3">Статус</th>
-            </tr></thead>
-            <tbody>
-              ${staff.map(s => `<tr class="table-row border-t">
-                <td class="px-4 py-3 font-medium">${s.full_name || '—'}
-                  ${s.surname ? `<div class="text-[10px] text-slate-400">${[s.surname,s.first_name,s.patronymic].filter(Boolean).join(' ')}</div>` : ''}
-                </td>
-                <td class="px-4 py-3 font-mono text-xs">${s.username}</td>
-                <td class="px-4 py-3 text-xs">${s.position || '—'}</td>
-                <td class="px-4 py-3">${s.ppr_specialty
-                  ? `<span class="text-xs px-2 py-0.5 rounded ${specCls[s.ppr_specialty]||'bg-slate-100'}">${specLabel[s.ppr_specialty]||s.ppr_specialty}</span>`
-                  : '<span class="text-xs text-slate-400">авто</span>'}</td>
-                <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${s.role}</span></td>
-                <td class="px-4 py-3">${s.can_do_ppr ? '✓' : '—'}</td>
-                <td class="px-4 py-3">${s.can_duty ? '✓' : '—'}</td>
-                <td class="px-4 py-3 text-xs">${s.telegram_status === 'approved' ? '<span class="text-teal-700">привязан</span>' : s.telegram_status === 'pending' ? '<span class="text-amber-700">ожидает</span>' : '<span class="text-slate-400">не привязан</span>'}${s.telegram_chat_id && s.telegram_status === 'approved' ? '<div class="text-slate-400 font-mono">' + s.telegram_chat_id + '</div>' : ''}</td>
-                <td class="px-4 py-3">${s.is_active ? '<span class="text-teal-700">активен</span>' : '<span class="text-slate-400">откл.</span>'}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-        <p class="text-xs text-slate-500 mt-2">Всего: ${staff.length}</p>
-      `;
-      el.querySelectorAll('[data-telegram-approve]').forEach(btn => btn.addEventListener('click', async () => {
-        try { await api('/api/telegram/registrations/' + btn.dataset.telegramApprove + '/approve', { method: 'POST' }); toast('Привязка Telegram одобрена'); await renderStaff(el); }
-        catch (e) { toast(e.message || 'Не удалось одобрить заявку', 'error'); }
-      }));
-      el.querySelectorAll('[data-telegram-reject]').forEach(btn => btn.addEventListener('click', async () => {
-        try { await api('/api/telegram/registrations/' + btn.dataset.telegramReject + '/reject', { method: 'POST' }); toast('Заявка отклонена'); await renderStaff(el); }
-        catch (e) { toast(e.message || 'Не удалось отклонить заявку', 'error'); }
-      }));
-    }
-    async function openStaffModal() {
-      const [deps, positions, roles] = await Promise.all([
-        api('/api/departments'), api('/api/positions'), api('/api/roles')
-      ]);
-      $('#modal-title').textContent = 'Новый сотрудник';
-      $('#modal-body').innerHTML = `
-        <form id="staff-form" class="space-y-3 text-sm">
-          <div><label class="block mb-1">Логин</label><input name="username" class="w-full border rounded-lg px-3 py-2" required autocomplete="username"></div>
-          <div><label class="block mb-1">Пароль</label><input name="password" type="password" value="eng" class="w-full border rounded-lg px-3 py-2" autocomplete="current-password"></div>
-          <div><label class="block mb-1">ФИО</label><input name="full_name" class="w-full border rounded-lg px-3 py-2" required></div>
-          <div><label class="block mb-1">Подразделение</label>
-            <select name="department_id" id="staff-dept" class="w-full border rounded-lg px-3 py-2">
-              <option value="">—</option>
-              ${deps.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
-            </select></div>
-          <div><label class="block mb-1">Должность</label>
-            <select name="position_id" id="staff-pos" class="w-full border rounded-lg px-3 py-2">
-              <option value="">—</option>
-              ${positions.map(p => `<option value="${p.id}" data-dept="${p.department_id||''}">${p.name}</option>`).join('')}
-            </select></div>
-          <div><label class="block mb-1">Системная роль</label>
-            <select name="role" class="w-full border rounded-lg px-3 py-2">
-              ${roles.map(r => `<option value="${r.code}">${r.name} (${r.code})</option>`).join('')}
-            </select></div>
-          <div><label class="block mb-1">Направление ППР</label>
-            <select name="ppr_specialty" class="w-full border rounded-lg px-3 py-2">
-              <option value="">— по должности —</option>
-              <option value="sysadmin">Системный администратор</option>
-              <option value="installer">Монтажник</option>
-              <option value="network_engineer">Сетевой инженер</option>
-              <option value="head">Начальник ОСС</option>
-            </select></div>
-          <div class="flex gap-4">
-            <label class="flex items-center gap-2"><input type="checkbox" name="can_do_ppr" checked> Участвует в ППР</label>
-            <label class="flex items-center gap-2"><input type="checkbox" name="can_duty" checked> Дежурства</label>
-          </div>
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" onclick="closeModal()" class="px-4 py-2 border rounded-lg">Отмена</button>
-            <button type="submit" class="px-4 py-2 bg-teal-700 text-white rounded-lg">Сохранить</button>
-          </div>
-        </form>`;
-      openModal();
-      const deptSel = $('#staff-dept');
-      const posSel = $('#staff-pos');
-      if (deptSel) deptSel.onchange = () => {
-        const dep = deptSel.value;
-        Array.from(posSel.options).forEach((o, i) => {
-          if (i === 0) return;
-          o.hidden = dep && o.dataset.dept && o.dataset.dept !== dep;
+      const st = window.__staffUiState || (window.__staffUiState = {q:'',department:'',status:'active',role:'',telegram:'',capability:'',page:1,pageSize:25});
+      const roleName = Object.fromEntries(roles.map(r => [r.code,r.name]));
+      const deptName = id => departments.find(d => Number(d.id)===Number(id))?.name || 'Не указано';
+      const pill = (label, cls) => '<span class="inline-flex rounded-full px-2.5 py-1 text-xs font-medium '+cls+'">'+label+'</span>';
+      const tgPill = s => s.telegram_status==='approved' ? pill('Привязан','bg-emerald-50 text-emerald-700') : s.telegram_status==='pending' ? pill('Ожидает','bg-amber-50 text-amber-700') : pill('Не привязан','bg-slate-100 text-slate-500');
+      const render = () => {
+        const q=st.q.trim().toLocaleLowerCase('ru');
+        const filtered=staff.filter(s=>{
+          if(q && ![s.full_name,s.username,s.phone,s.email,s.position,deptName(s.department_id),s.role,s.notes].join(' ').toLocaleLowerCase('ru').includes(q))return false;
+          if(st.department && String(s.department_id||'')!==st.department)return false;
+          if(st.status==='active'&&!s.is_active)return false;if(st.status==='inactive'&&s.is_active)return false;
+          if(st.role&&s.role!==st.role)return false;
+          if(st.telegram==='unlinked'&&['approved','pending'].includes(s.telegram_status))return false;
+          if(st.telegram&&st.telegram!=='unlinked'&&s.telegram_status!==st.telegram)return false;
+          if(st.capability==='ppr'&&!s.can_do_ppr)return false;if(st.capability==='duty'&&!s.can_duty)return false;
+          return true;
         });
+        const pages=Math.max(1,Math.ceil(filtered.length/st.pageSize));st.page=Math.min(Math.max(1,st.page),pages);
+        const shown=filtered.slice((st.page-1)*st.pageSize,st.page*st.pageSize);
+        const active=staff.filter(s=>s.is_active).length,ppr=staff.filter(s=>s.is_active&&s.can_do_ppr).length,duty=staff.filter(s=>s.is_active&&s.can_duty).length,pending=staff.filter(s=>s.telegram_status==='pending').length;
+        const status=s=>s.is_active?pill('Активен','bg-emerald-50 text-emerald-700'):pill('Отключён','bg-slate-100 text-slate-500');
+        const specs={sysadmin:'Системный администратор',installer:'Монтажник',network_engineer:'Сетевой инженер',head:'Начальник ОСС'};
+        el.innerHTML='<div class="mx-auto max-w-[1600px] space-y-5">'+
+          '<section class="overflow-hidden rounded-3xl bg-slate-950 p-5 text-white sm:p-7"><div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><div class="text-xs font-semibold uppercase tracking-[.18em] text-teal-300">Кадровый справочник</div><h2 class="mt-2 text-2xl font-semibold sm:text-3xl">Сотрудники</h2><p class="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Карточки сотрудников, системные роли, рабочие допуски и Telegram-привязки в одном реестре.</p></div><div class="flex flex-wrap gap-2"><button id="staff-export" class="rounded-xl border border-white/20 px-3 py-2 text-sm hover:bg-white/10">Экспорт CSV</button><button id="staff-refresh" class="rounded-xl border border-white/20 px-3 py-2 text-sm hover:bg-white/10">Обновить</button><button id="staff-add" class="rounded-xl bg-teal-400 px-4 py-2 text-sm font-semibold text-slate-950">+ Добавить сотрудника</button></div></div>'+
+          '<div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">'+
+          [['Всего записей',staff.length,'включая архив'],['Активные',active,'доступ разрешён'],['Участвуют в ППР',ppr,'активные сотрудники'],['Дежурства / заявки',duty+' / '+pending,'допущены / ждут Telegram']].map(x=>'<div class="rounded-2xl border border-white/10 bg-white/5 p-4"><div class="text-xs text-slate-400">'+x[0]+'</div><div class="mt-1 text-2xl font-semibold">'+x[1]+'</div><div class="mt-1 text-xs text-slate-400">'+x[2]+'</div></div>').join('')+'</div></section>'+
+          (telegramRegistrations.length?'<section class="overflow-hidden rounded-2xl border border-amber-200 bg-white"><div class="border-b border-amber-100 bg-amber-50 px-4 py-3"><h3 class="font-semibold text-amber-950">Заявки на привязку Telegram ('+telegramRegistrations.length+')</h3><p class="mt-1 text-xs text-amber-800">Проверьте сотрудника и телефон перед подтверждением.</p></div><div class="divide-y">'+telegramRegistrations.map(r=>'<div class="flex flex-wrap items-center justify-between gap-3 p-4"><div><div class="font-semibold">'+esc(r.full_name||r.username)+'</div><div class="mt-1 text-xs text-slate-500">'+esc(r.pending_phone||r.phone||'Телефон не указан')+' · '+esc(r.position||'Должность не указана')+' · '+esc(r.department_name||'Подразделение не указано')+'</div><div class="font-mono text-[11px] text-slate-400">Chat ID: '+esc(r.telegram_chat_id)+'</div></div><div class="flex gap-2"><button data-telegram-approve="'+r.id+'" class="rounded-lg bg-teal-700 px-3 py-2 text-xs text-white">Одобрить</button><button data-telegram-reject="'+r.id+'" class="rounded-lg border border-rose-200 px-3 py-2 text-xs text-rose-700">Отклонить</button></div></div>').join('')+'</div></section>':'')+
+          '<section class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"><div class="mb-3 flex items-center justify-between"><div><h3 class="font-semibold">Поиск и фильтры</h3><p class="mt-1 text-xs text-slate-500">Фильтры комбинируются; CSV содержит только найденные записи.</p></div><button id="staff-clear" class="rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">Сбросить</button></div><div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">'+
+          '<label class="xl:col-span-2"><span class="mb-1 block text-xs text-slate-500">Поиск</span><input id="staff-q" value="'+esc(st.q)+'" placeholder="ФИО, логин, телефон, email…" class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"></label>'+
+          '<label><span class="mb-1 block text-xs text-slate-500">Подразделение</span><select id="staff-department-filter" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="">Все</option>'+departments.map(d=>'<option value="'+d.id+'" '+(st.department===String(d.id)?'selected':'')+'>'+esc(d.name)+'</option>').join('')+'</select></label>'+
+          '<label><span class="mb-1 block text-xs text-slate-500">Статус</span><select id="staff-status-filter" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="active" '+(st.status==='active'?'selected':'')+'>Активные</option><option value="inactive" '+(st.status==='inactive'?'selected':'')+'>Отключённые</option><option value="all" '+(st.status==='all'?'selected':'')+'>Все</option></select></label>'+
+          '<label><span class="mb-1 block text-xs text-slate-500">Роль</span><select id="staff-role-filter" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="">Все роли</option>'+roles.map(r=>'<option value="'+esc(r.code)+'" '+(st.role===r.code?'selected':'')+'>'+esc(r.name)+'</option>').join('')+'</select></label>'+
+          '<label><span class="mb-1 block text-xs text-slate-500">Telegram</span><select id="staff-telegram-filter" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="">Любой</option><option value="approved" '+(st.telegram==='approved'?'selected':'')+'>Привязан</option><option value="pending" '+(st.telegram==='pending'?'selected':'')+'>Ожидает</option><option value="unlinked" '+(st.telegram==='unlinked'?'selected':'')+'>Не привязан</option></select></label>'+
+          '<label><span class="mb-1 block text-xs text-slate-500">Допуск</span><select id="staff-capability-filter" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="">Все</option><option value="ppr" '+(st.capability==='ppr'?'selected':'')+'>Участие в ППР</option><option value="duty" '+(st.capability==='duty'?'selected':'')+'>Дежурства</option></select></label></div></section>'+
+          '<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div class="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3"><div><h3 class="font-semibold">Реестр сотрудников</h3><p class="mt-1 text-xs text-slate-500">Карточка позволяет просматривать и редактировать профиль.</p></div><label class="flex items-center gap-2 text-xs text-slate-500">Строк на странице<select id="staff-page-size" class="rounded-lg border px-2 py-1.5"><option '+(st.pageSize===25?'selected':'')+'>25</option><option '+(st.pageSize===50?'selected':'')+'>50</option><option '+(st.pageSize===100?'selected':'')+'>100</option></select></label></div>'+
+          '<div class="overflow-x-auto"><table class="w-full min-w-[1050px] text-sm"><thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3">Сотрудник</th><th class="px-4 py-3">Подразделение / должность</th><th class="px-4 py-3">Роль</th><th class="px-4 py-3">Допуски</th><th class="px-4 py-3">Telegram</th><th class="px-4 py-3">Статус</th><th class="px-4 py-3 text-right">Действия</th></tr></thead><tbody>'+
+          (shown.length?shown.map(s=>'<tr class="border-t transition hover:bg-slate-50"><td class="px-4 py-3"><div class="font-semibold text-slate-900">'+esc(s.full_name||'Без ФИО')+'</div><div class="mt-0.5 font-mono text-xs text-slate-500">@'+esc(s.username)+'</div><div class="mt-1 text-xs text-slate-500">'+esc(s.phone||'Телефон не указан')+(s.email?' · '+esc(s.email):'')+'</div></td><td class="px-4 py-3"><div class="font-medium">'+esc(deptName(s.department_id))+'</div><div class="mt-1 text-xs text-slate-500">'+esc(s.position||'Должность не указана')+'</div>'+(s.ppr_specialty?'<div class="mt-1 text-xs text-indigo-600">'+esc(specs[s.ppr_specialty]||s.ppr_specialty)+'</div>':'')+'</td><td class="px-4 py-3">'+pill(esc(roleName[s.role]||s.role||'Не назначена'),'bg-slate-100 text-slate-700')+'<div class="mt-1 text-[11px] text-slate-400">'+esc(s.role)+'</div></td><td class="px-4 py-3"><div class="flex flex-wrap gap-1">'+(s.can_do_ppr?pill('ППР','bg-sky-50 text-sky-700'):pill('Без ППР','bg-slate-100 text-slate-400'))+(s.can_duty?pill('Дежурства','bg-violet-50 text-violet-700'):pill('Без дежурств','bg-slate-100 text-slate-400'))+'</div></td><td class="px-4 py-3">'+tgPill(s)+(s.telegram_status==='approved'&&s.telegram_chat_id?'<div class="mt-1 font-mono text-[10px] text-slate-400">'+esc(s.telegram_chat_id)+'</div>':'')+'</td><td class="px-4 py-3">'+status(s)+'</td><td class="px-4 py-3"><div class="flex justify-end gap-2"><button data-staff-edit="'+s.id+'" class="rounded-lg border px-3 py-2 text-xs hover:bg-teal-50">Карточка</button><button data-staff-toggle="'+s.id+'" data-active="'+(s.is_active?'1':'0')+'" class="rounded-lg border px-3 py-2 text-xs '+(s.is_active?'border-rose-200 text-rose-700':'border-emerald-200 text-emerald-700')+'">'+(s.is_active?'Отключить':'Восстановить')+'</button></div></td></tr>').join(''):'<tr><td colspan="7" class="px-4 py-14 text-center text-sm text-slate-500">Сотрудники не найдены. Измените фильтры или сбросьте поиск.</td></tr>')+
+          '</tbody></table></div><div class="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3"><span class="text-xs text-slate-500">Показано '+(filtered.length?(st.page-1)*st.pageSize+1:0)+'–'+Math.min(st.page*st.pageSize,filtered.length)+' из '+filtered.length+'</span><div class="flex items-center gap-2"><button id="staff-prev" '+(st.page<=1?'disabled':'')+' class="rounded-lg border px-3 py-2 text-xs disabled:opacity-40">Назад</button><span class="text-xs text-slate-500">Страница '+st.page+' из '+pages+'</span><button id="staff-next" '+(st.page>=pages?'disabled':'')+' class="rounded-lg border px-3 py-2 text-xs disabled:opacity-40">Далее</button></div></div></section></div>';
+        const bind=(id,key,event)=>el.querySelector('#'+id).addEventListener(event||'change',e=>{st[key]=e.target.value;st.page=1;if(key==='q'){const p=e.target.selectionStart;render();const inp=el.querySelector('#staff-q');inp.focus();if(p!==null)inp.setSelectionRange(p,p);}else render();});
+        bind('staff-q','q','input');bind('staff-department-filter','department');bind('staff-status-filter','status');bind('staff-role-filter','role');bind('staff-telegram-filter','telegram');bind('staff-capability-filter','capability');
+        el.querySelector('#staff-page-size').onchange=e=>{st.pageSize=Number(e.target.value)||25;st.page=1;render();};
+        el.querySelector('#staff-prev').onclick=()=>{st.page--;render();};el.querySelector('#staff-next').onclick=()=>{st.page++;render();};
+        el.querySelector('#staff-clear').onclick=()=>{Object.assign(st,{q:'',department:'',status:'active',role:'',telegram:'',capability:'',page:1});render();};
+        el.querySelector('#staff-refresh').onclick=()=>renderStaff(el);el.querySelector('#staff-add').onclick=()=>openStaffModal();
+        el.querySelector('#staff-export').onclick=()=>{const rows=[['ID','ФИО','Логин','Телефон','Email','Подразделение','Должность','Роль','Активен','ППР','Дежурства','Telegram'],...filtered.map(s=>[s.id,s.full_name,s.username,s.phone,s.email,deptName(s.department_id),s.position,roleName[s.role]||s.role,s.is_active?'Да':'Нет',s.can_do_ppr?'Да':'Нет',s.can_duty?'Да':'Нет',s.telegram_status])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');const url=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'}));const a=document.createElement('a');a.href=url;a.download='sotrudniki.csv';a.click();URL.revokeObjectURL(url);};
+        el.querySelectorAll('[data-staff-edit]').forEach(b=>b.onclick=()=>openStaffModal(Number(b.dataset.staffEdit)));
+        el.querySelectorAll('[data-staff-toggle]').forEach(b=>b.onclick=async()=>{const s=staff.find(x=>Number(x.id)===Number(b.dataset.staffToggle));if(!s)return;const active=b.dataset.active==='0';if(!confirm((active?'Восстановить':'Отключить')+' сотрудника «'+(s.full_name||s.username)+'»? '+(active?'':'Данные и история сохранятся.')))return;try{await api('/api/staff/'+s.id,{method:'PATCH',body:JSON.stringify({is_active:active})});toast(active?'Сотрудник восстановлен':'Сотрудник отключён');await renderStaff(el);}catch(e){toast(e.message||'Не удалось изменить статус','error');}});
+        el.querySelectorAll('[data-telegram-approve]').forEach(b=>b.onclick=async()=>{try{await api('/api/telegram/registrations/'+b.dataset.telegramApprove+'/approve',{method:'POST'});toast('Привязка Telegram одобрена');await renderStaff(el);}catch(e){toast(e.message||'Не удалось одобрить заявку','error');}});
+        el.querySelectorAll('[data-telegram-reject]').forEach(b=>b.onclick=async()=>{if(!confirm('Отклонить заявку на привязку Telegram?'))return;try{await api('/api/telegram/registrations/'+b.dataset.telegramReject+'/reject',{method:'POST'});toast('Заявка отклонена');await renderStaff(el);}catch(e){toast(e.message||'Не удалось отклонить заявку','error');}});
       };
-      $('#staff-form').onsubmit = async (e) => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const posId = fd.get('position_id') ? parseInt(fd.get('position_id')) : null;
-        const posOpt = posId ? positions.find(p => p.id === posId) : null;
-        try {
-          await api('/api/staff', { method: 'POST', body: JSON.stringify({
-            username: fd.get('username'), password: fd.get('password') || 'eng',
-            full_name: fd.get('full_name'),
-            role: fd.get('role'),
-            department_id: fd.get('department_id') ? parseInt(fd.get('department_id')) : null,
-            position_id: posId,
-            position: posOpt ? posOpt.name : null,
-            can_do_ppr: fd.get('can_do_ppr') === 'on',
-            can_duty: fd.get('can_duty') === 'on',
-            ppr_specialty: fd.get('ppr_specialty') || null
-          })});
-          closeModal(); loadPage('staff');
-        } catch (err) { alert(err.message); }
-      };
+      render();
+    }
+
+    async function openStaffModal(staffId = null) {
+      const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const [deps,positions,roles,rows]=await Promise.all([api('/api/departments').catch(()=>[]),api('/api/positions').catch(()=>[]),api('/api/roles').catch(()=>[]),staffId?api('/api/staff?active_only=false'):Promise.resolve([])]);
+      const s=rows.find(x=>Number(x.id)===Number(staffId))||null;if(staffId&&!s){toast('Сотрудник не найден','error');return;}
+      const v=k=>esc(s?.[k]??''), cls='w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100';
+      $('#modal-title').textContent=s?'Карточка сотрудника':'Новый сотрудник';
+      $('#modal-body').innerHTML='<form id="staff-form" class="space-y-5 text-sm">'+
+        '<section><div class="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Личные данные</div><div class="grid gap-3 sm:grid-cols-2">'+
+        '<label class="sm:col-span-2"><span class="mb-1 block text-xs text-slate-500">ФИО *</span><input name="full_name" value="'+v('full_name')+'" class="'+cls+'" required></label>'+
+        '<label><span class="mb-1 block text-xs text-slate-500">Телефон</span><input name="phone" type="tel" value="'+v('phone')+'" class="'+cls+'" placeholder="+7…"></label>'+
+        '<label><span class="mb-1 block text-xs text-slate-500">Email</span><input name="email" type="email" value="'+v('email')+'" class="'+cls+'"></label>'+
+        '<label><span class="mb-1 block text-xs text-slate-500">Фамилия</span><input name="surname" value="'+v('surname')+'" class="'+cls+'"></label>'+
+        '<label><span class="mb-1 block text-xs text-slate-500">Имя</span><input name="first_name" value="'+v('first_name')+'" class="'+cls+'"></label>'+
+        '<label><span class="mb-1 block text-xs text-slate-500">Отчество</span><input name="patronymic" value="'+v('patronymic')+'" class="'+cls+'"></label>'+
+        '<label><span class="mb-1 block text-xs text-slate-500">Пол</span><select name="gender" class="'+cls+'"><option value="">Не указан</option><option value="m" '+(s?.gender==='m'?'selected':'')+'>Мужской</option><option value="f" '+(s?.gender==='f'?'selected':'')+'>Женский</option></select></label></div></section>'+
+        '<section><div class="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Работа и доступ</div><div class="grid gap-3 sm:grid-cols-2">'+
+        (s?'<div><span class="mb-1 block text-xs text-slate-500">Логин</span><div class="rounded-xl bg-slate-50 px-3 py-2.5 font-mono">'+v('username')+'</div></div>':'<label><span class="mb-1 block text-xs text-slate-500">Логин *</span><input name="username" class="'+cls+'" required></label>')+
+        '<label><span class="mb-1 block text-xs text-slate-500">'+(s?'Новый пароль (необязательно)':'Пароль *')+'</span><input name="password" type="password" class="'+cls+'" '+(s?'':'required')+' autocomplete="new-password" placeholder="'+(s?'Оставьте пустым, чтобы не менять':'Задайте временный пароль')+'"></label>'+
+        '<label><span class="mb-1 block text-xs text-slate-500">Подразделение</span><select name="department_id" id="staff-dept" class="'+cls+'"><option value="">Не назначено</option>'+deps.map(d=>'<option value="'+d.id+'" '+(Number(s?.department_id)===Number(d.id)?'selected':'')+'>'+esc(d.name)+'</option>').join('')+'</select></label>'+
+        '<label><span class="mb-1 block text-xs text-slate-500">Должность</span><select name="position_id" id="staff-pos" class="'+cls+'"><option value="">Не назначена</option>'+positions.map(p=>'<option value="'+p.id+'" data-dept="'+(p.department_id||'')+'" '+(Number(s?.position_id)===Number(p.id)?'selected':'')+'>'+esc(p.name)+'</option>').join('')+'</select></label>'+
+        '<label><span class="mb-1 block text-xs text-slate-500">Системная роль</span><select name="role" class="'+cls+'">'+roles.map(r=>'<option value="'+esc(r.code)+'" '+(s?.role===r.code?'selected':'')+'>'+esc(r.name)+' ('+esc(r.code)+')</option>').join('')+'</select></label>'+
+        '<label><span class="mb-1 block text-xs text-slate-500">Направление ППР</span><select name="ppr_specialty" class="'+cls+'"><option value="">По должности</option><option value="sysadmin" '+(s?.ppr_specialty==='sysadmin'?'selected':'')+'>Системный администратор</option><option value="installer" '+(s?.ppr_specialty==='installer'?'selected':'')+'>Монтажник</option><option value="network_engineer" '+(s?.ppr_specialty==='network_engineer'?'selected':'')+'>Сетевой инженер</option><option value="head" '+(s?.ppr_specialty==='head'?'selected':'')+'>Начальник ОСС</option></select></label></div></section>'+
+        '<section><div class="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Участие в процессах</div><div class="grid gap-3 sm:grid-cols-2">'+
+        '<label class="flex items-start gap-3 rounded-xl border p-3"><input type="checkbox" name="can_do_ppr" class="mt-1" '+(s?.can_do_ppr!==false?'checked':'')+'><span><b>Участвует в ППР</b><span class="mt-1 block text-xs text-slate-500">Может получать и выполнять плановые задачи.</span></span></label>'+
+        '<label class="flex items-start gap-3 rounded-xl border p-3"><input type="checkbox" name="can_duty" class="mt-1" '+(s?.can_duty!==false?'checked':'')+'><span><b>Допущен к дежурствам</b><span class="mt-1 block text-xs text-slate-500">Может назначаться в график дежурств.</span></span></label></div>'+
+        '<label class="mt-3 block"><span class="mb-1 block text-xs text-slate-500">Примечание</span><textarea name="notes" rows="3" class="'+cls+'">'+v('notes')+'</textarea></label></section>'+
+        (s?'<section class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-500">Telegram</div><div class="mt-1">'+(s.telegram_status==='approved'?'Привязан':s.telegram_status==='pending'?'Ожидает одобрения':'Не привязан')+'</div>'+(s.telegram_chat_id?'<div class="mt-1 font-mono text-xs text-slate-500">Chat ID: '+v('telegram_chat_id')+'</div>':'')+'</section>':'')+
+        '<div class="flex justify-end gap-2 border-t pt-4"><button type="button" id="staff-cancel" class="rounded-xl border px-4 py-2.5">Отмена</button><button type="submit" class="rounded-xl bg-teal-700 px-4 py-2.5 font-semibold text-white">'+(s?'Сохранить изменения':'Создать сотрудника')+'</button></div></form>';
+      openModal();$('#staff-cancel').onclick=closeModal;
+      const dep=$('#staff-dept'),pos=$('#staff-pos');const filterPos=()=>{Array.from(pos.options).forEach((o,i)=>{if(i===0)return;o.hidden=!!(dep.value&&o.dataset.dept&&o.dataset.dept!==dep.value);});if(pos.selectedOptions[0]?.hidden)pos.value='';};dep.onchange=filterPos;filterPos();
+      $('#staff-form').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,fd=new FormData(form),pid=fd.get('position_id')?Number(fd.get('position_id')):null,po=positions.find(p=>Number(p.id)===pid);const payload={full_name:String(fd.get('full_name')||'').trim(),phone:String(fd.get('phone')||'').trim()||null,email:String(fd.get('email')||'').trim()||null,surname:String(fd.get('surname')||'').trim()||null,first_name:String(fd.get('first_name')||'').trim()||null,patronymic:String(fd.get('patronymic')||'').trim()||null,gender:fd.get('gender')||null,department_id:fd.get('department_id')?Number(fd.get('department_id')):null,position_id:pid,position:po?.name||null,role:fd.get('role'),ppr_specialty:fd.get('ppr_specialty')||null,can_do_ppr:fd.get('can_do_ppr')==='on',can_duty:fd.get('can_duty')==='on',notes:String(fd.get('notes')||'').trim()||null};const password=String(fd.get('password')||'');if(password)payload.password=password;if(!s){payload.username=String(fd.get('username')||'').trim();if(!payload.username||!password){toast('Укажите логин и пароль','error');return;}}if(!payload.full_name){toast('Укажите ФИО','error');return;}const btn=form.querySelector('button[type=submit]');btn.disabled=true;btn.textContent='Сохранение…';try{await api(s?'/api/staff/'+s.id:'/api/staff',{method:s?'PATCH':'POST',body:JSON.stringify(payload)});closeModal();toast(s?'Карточка сотрудника обновлена':'Сотрудник создан');await renderStaff(el);}catch(err){toast(err.message||'Не удалось сохранить сотрудника','error');btn.disabled=false;btn.textContent=s?'Сохранить изменения':'Создать сотрудника';}};
     }
 
     async function renderDuties(el) {
