@@ -48,6 +48,10 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    department_columns = {column["name"] for column in inspect(engine).get_columns("departments")}
+    if "duty_enabled" not in department_columns:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TABLE departments ADD COLUMN duty_enabled BOOLEAN NOT NULL DEFAULT 1")
     duty_columns = {column["name"] for column in inspect(engine).get_columns("duty_schedules")}
     if "department_id" not in duty_columns:
         with engine.begin() as conn:
@@ -1032,7 +1036,7 @@ def list_duties(
 ):
     if user.role not in ("admin", "head"):
         raise HTTPException(403, "Графики дежурств доступны администратору и руководителям подразделений")
-    q = db.query(DutySchedule).options(joinedload(DutySchedule.user))
+    q = db.query(DutySchedule).join(Department, DutySchedule.department_id == Department.id).options(joinedload(DutySchedule.user)).filter(Department.duty_enabled == True, Department.is_active == True)
     if user.role == "head":
         q = q.filter((DutySchedule.department_id == user.department_id) | (DutySchedule.department_id.is_(None)))
     if from_date:
@@ -1055,7 +1059,9 @@ def duty_today(user: User = Depends(require_user), db: Session = Depends(get_db)
     today = date.today()
     duties = (
         db.query(DutySchedule)
+        .join(Department, DutySchedule.department_id == Department.id)
         .options(joinedload(DutySchedule.user))
+        .filter(Department.duty_enabled == True, Department.is_active == True)
         .filter(DutySchedule.duty_date == today)
         .filter(
             ((DutySchedule.department_id == user.department_id) | (DutySchedule.department_id.is_(None)))
@@ -1080,6 +1086,8 @@ def duty_today(user: User = Depends(require_user), db: Session = Depends(get_db)
 
 @app.post("/api/duties", response_model=schemas.DutyOut)
 def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if data.department_id is None:
+        raise HTTPException(422, "Назначение создаётся только в графике конкретного подразделения; общий график доступен только для просмотра")
     _check_duty_scope(user, data.department_id)
     shift = (data.shift or "day").strip().lower()
     if shift not in {"day", "night", "full"}:
@@ -1093,6 +1101,8 @@ def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db
         department = db.query(Department).filter(Department.id == data.department_id).first()
         if not department or not department.is_active:
             raise HTTPException(422, "Подразделение не найдено или неактивно")
+        if not department.duty_enabled:
+            raise HTTPException(422, "Это подразделение исключено из дежурств")
         if staff.department_id != data.department_id:
             raise HTTPException(422, "Для графика подразделения выберите сотрудника этого подразделения")
     existing = db.query(DutySchedule).filter(
@@ -1121,6 +1131,8 @@ def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db
 
 @app.post("/api/duties/bulk")
 def create_duties_bulk(data: schemas.DutyBulkCreate, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if data.department_id is None:
+        raise HTTPException(422, "Массовое назначение возможно только для конкретного подразделения")
     _check_duty_scope(user, data.department_id)
     shift = (data.shift or "day").strip().lower()
     if shift not in {"day", "night", "full"}:
@@ -1134,6 +1146,8 @@ def create_duties_bulk(data: schemas.DutyBulkCreate, user: User = Depends(requir
         department = db.query(Department).filter(Department.id == data.department_id).first()
         if not department or not department.is_active:
             raise HTTPException(422, "Подразделение не найдено или неактивно")
+        if not department.duty_enabled:
+            raise HTTPException(422, "Это подразделение исключено из дежурств")
         if staff.department_id != data.department_id:
             raise HTTPException(422, "Для графика подразделения выберите сотрудника этого подразделения")
     dates = sorted(set(data.dates))

@@ -2,7 +2,7 @@
 from datetime import date, timedelta
 from calendar import monthrange
 from sqlalchemy.orm import Session
-from models import Object, PPRTemplate, PPRPlan, User, DutySchedule
+from models import Object, PPRTemplate, PPRPlan, User, DutySchedule, Department
 from settings_service import get_setting
 
 
@@ -46,32 +46,30 @@ def infer_specialty(user: User) -> str | None:
 
 
 def get_duty_user(db: Session, on_date: date, department_id: int | None = None) -> User | None:
-    # Сначала ищем дежурного конкретного подразделения; при отсутствии используем общий график.
-    base = (
+    """Return the duty officer assigned to this department only.
+
+    The overall duty calendar is a read-only consolidated view of department
+    schedules, not a separate schedule and never a fallback for assignments.
+    """
+    if department_id is None:
+        return None
+    duty = (
         db.query(DutySchedule)
         .join(User, DutySchedule.user_id == User.id)
+        .join(Department, DutySchedule.department_id == Department.id)
         .filter(
+            Department.duty_enabled == True,
+            Department.is_active == True,
             DutySchedule.duty_date == on_date,
+            DutySchedule.department_id == department_id,
             DutySchedule.shift.in_(["day", "full"]),
             User.is_active == True,
             User.can_duty == True,
         )
-    )
-    if department_id is not None:
-        local = (
-            base.filter(DutySchedule.department_id == department_id)
-            .order_by((DutySchedule.shift == "full").desc(), DutySchedule.id)
-            .first()
-        )
-        if local:
-            return local.user
-    global_duty = (
-        base.filter(DutySchedule.department_id.is_(None))
         .order_by((DutySchedule.shift == "full").desc(), DutySchedule.id)
         .first()
     )
-    return global_duty.user if global_duty else None
-
+    return duty.user if duty else None
 
 def get_users_by_specialty(db: Session, specialty: str | None, department_id: int | None = None) -> list:
     q = db.query(User).filter(

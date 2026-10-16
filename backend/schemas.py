@@ -359,6 +359,7 @@ class DutyBulkCreate(BaseModel):
 class DepartmentCreate(BaseModel):
     name: str
     code: Optional[str] = None
+    duty_enabled: bool = True
     sort_order: int = 0
     notes: Optional[str] = None
     is_active: bool = True
@@ -367,6 +368,7 @@ class DepartmentCreate(BaseModel):
 class DepartmentUpdate(BaseModel):
     name: Optional[str] = None
     code: Optional[str] = None
+    duty_enabled: Optional[bool] = None
     sort_order: Optional[int] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
@@ -377,6 +379,7 @@ class DepartmentOut(BaseModel):
     id: int
     name: str
     code: Optional[str] = None
+    duty_enabled: bool = True
     sort_order: int = 0
     notes: Optional[str] = None
     is_active: bool = True
