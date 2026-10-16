@@ -919,6 +919,15 @@ def approve_telegram_registration(staff_id: int, user: User = Depends(require_ad
         raise HTTPException(404, "Заявка не найдена")
     if not row.telegram_chat_id:
         raise HTTPException(422, "В заявке отсутствует Telegram Chat ID")
+    if not row.is_active:
+        raise HTTPException(409, "Нельзя одобрить привязку неактивного сотрудника")
+    conflict = db.query(User).filter(
+        User.id != row.id,
+        User.telegram_chat_id == row.telegram_chat_id,
+        User.telegram_status == "approved",
+    ).first()
+    if conflict:
+        raise HTTPException(409, "Этот Telegram уже привязан к другому сотруднику")
     row.phone = row.telegram_pending_phone or row.phone
     row.telegram_pending_phone = None
     row.telegram_status = "approved"
