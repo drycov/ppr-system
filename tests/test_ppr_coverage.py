@@ -95,10 +95,12 @@ class PPRCoverageTests(unittest.TestCase):
         workbook = load_workbook(BytesIO(data), read_only=True)
         sheet = workbook["Задачи ППР"]
         self.assertEqual(sheet.cell(row=3, column=13).value, "Перечень объектов")
-        object_list = sheet.cell(row=4, column=13).value
-        self.assertIn("CORE-01", object_list)
-        self.assertIn("SW-01", object_list)
-        self.assertNotIn("CAM-01", object_list)
+        self.assertEqual(sheet.max_row, 5)
+        first_object = sheet.cell(row=4, column=4).value
+        second_object = sheet.cell(row=5, column=4).value
+        self.assertEqual({first_object, second_object}, {"CORE-01", "SW-01"})
+        self.assertEqual(sheet.cell(row=4, column=13).value, "CORE-01 — Ядро сети")
+        self.assertEqual(sheet.cell(row=5, column=13).value, "SW-01 — Коммутатор доступа")
         workbook.close()
 
     def test_report_contains_all_objects_and_daily_checks(self):
