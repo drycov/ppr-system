@@ -1,24 +1,16 @@
 {
-  "name": "ППР ОСС / АПК",
-  "short_name": "ППР ОСС",
-  "description": "Учёт планово-профилактических работ ОСС",
-  "start_url": "/",
+  "name": "Система ППР ОСС / АПК",
+  "short_name": "ППР",
+  "description": "Планово-профилактические работы ОСС / АПК",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0f766e",
+  "orientation": "any",
+  "background_color": "#f8fafc",
   "theme_color": "#0f766e",
   "lang": "ru",
   "icons": [
-    {
-      "src": "/static/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/static/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ]
+    {"src": "/icons/ppr.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}
+  ],
+  "categories": ["business", "productivity"]
 }
