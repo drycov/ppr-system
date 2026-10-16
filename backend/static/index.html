@@ -508,8 +508,10 @@
 
     function typeLabel(t) {
       const map = {
-        camera_integration: 'ИНТ (камеры)',
+        camera_integration: 'Интеграция',
         ovn: 'ОВН',
+        lu: 'ЛУ',
+        p: 'П',
         voles: 'ВОЛС',
         sip: 'СИП',
         network: 'Сеть ОСС',
@@ -1097,8 +1099,10 @@
           <select id="obj-type" class="border border-slate-300 rounded-lg px-3 py-2 text-sm">
             <option value="">Все типы</option>
             <optgroup label="АПК / линии">
-              <option value="camera_integration" ${objectsFilter.type==='camera_integration'?'selected':''}>ИНТ (камеры)</option>
+              <option value="camera_integration" ${objectsFilter.type==='camera_integration'?'selected':''}>Интеграция</option>
               <option value="ovn" ${objectsFilter.type==='ovn'?'selected':''}>ОВН</option>
+              <option value="lu" ${objectsFilter.type==='lu'?'selected':''}>ЛУ</option>
+              <option value="p" ${objectsFilter.type==='p'?'selected':''}>П</option>
               <option value="voles" ${objectsFilter.type==='voles'?'selected':''}>ВОЛС</option>
               <option value="sip" ${objectsFilter.type==='sip'?'selected':''}>СИП</option>
             </optgroup>
@@ -1162,8 +1166,10 @@
       }
       const isEdit = !!obj;
       const typeOpts = [
-        ['camera_integration', 'ИНТ (интеграция камер)'],
-        ['ovn', 'ОВН (уличные)'],
+        ['camera_integration', 'Интеграция'],
+        ['ovn', 'ОВН'],
+        ['lu', 'ЛУ (локационный узел)'],
+        ['p', 'П'],
         ['voles', 'ВОЛС'],
         ['sip', 'СИП'],
         ['us', 'УС (узел связи)'],
