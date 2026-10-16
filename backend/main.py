@@ -597,6 +597,61 @@ def complete_plan(
     return {"ok": True, "message": "ППР отмечен как выполненный"}
 
 
+
+@app.post("/api/plans/complete-bulk")
+def complete_plans_bulk(
+    payload: dict,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Массовое закрытие задач объектов разрешено только для подразделения ОСС."""
+    ids = payload.get("plan_ids")
+    if not isinstance(ids, list) or not ids or len(ids) > 500:
+        raise HTTPException(422, "plan_ids должен содержать от 1 до 500 идентификаторов задач")
+    if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in ids):
+        raise HTTPException(422, "Некорректный список идентификаторов задач")
+    ids = list(dict.fromkeys(ids))
+
+    from sqlalchemy import or_
+    oss_department = db.query(Department).filter(
+        or_(
+            func.lower(func.trim(Department.name)) == "осс",
+            func.lower(func.trim(Department.code)) == "oss",
+        ),
+        Department.is_active.is_(True),
+    ).first()
+    if not oss_department:
+        raise HTTPException(403, "Массовое выполнение доступно только для активного подразделения ОСС")
+    if user.role not in ("admin", "head") and user.department_id != oss_department.id:
+        raise HTTPException(403, "Массовое выполнение ППР доступно только сотрудникам ОСС")
+
+    plans = db.query(PPRPlan).filter(PPRPlan.id.in_(ids)).all()
+    if len(plans) != len(ids):
+        raise HTTPException(404, "Одна или несколько задач не найдены")
+    if any(p.department_id != oss_department.id or p.object_id is None for p in plans):
+        raise HTTPException(403, "Массово можно выполнять только задачи, назначенные на объекты подразделения ОСС")
+    if any(p.status in ("done", "cancelled") for p in plans):
+        raise HTTPException(409, "В выборке есть уже выполненные или отменённые задачи; обновите список")
+
+    work_types = payload.get("work_types_done", [])
+    if not isinstance(work_types, list) or any(not isinstance(v, str) for v in work_types):
+        raise HTTPException(422, "work_types_done должен быть списком строк")
+    comment = payload.get("comment")
+    if comment is not None and not isinstance(comment, str):
+        raise HTTPException(422, "comment должен быть строкой")
+
+    today = date.today()
+    for plan in plans:
+        plan.status = "done"
+        plan.fact_date = today
+        if work_types:
+            plan.work_types_done = work_types
+        if comment:
+            plan.comment = comment
+    db.commit()
+    return {"ok": True, "completed": len(plans), "plan_ids": ids, "message": f"Массово выполнено задач: {len(plans)}"}
+
+
 # ========== Daily Checks ==========
 def _enrich_daily_out(check: DailyCheck) -> dict:
     """Добавляет done_count / total_count и нормализует checklist."""
