@@ -46,30 +46,32 @@ def infer_specialty(user: User) -> str | None:
 
 
 def get_duty_user(db: Session, on_date: date, department_id: int | None = None) -> User | None:
-    """Return the duty officer assigned to this department only.
-
-    The overall duty calendar is a read-only consolidated view of department
-    schedules, not a separate schedule and never a fallback for assignments.
-    """
-    if department_id is None:
-        return None
-    duty = (
-        db.query(DutySchedule)
-        .join(User, DutySchedule.user_id == User.id)
-        .join(Department, DutySchedule.department_id == Department.id)
-        .filter(
-            Department.duty_enabled == True,
-            Department.is_active == True,
-            DutySchedule.duty_date == on_date,
-            DutySchedule.department_id == department_id,
-            DutySchedule.shift.in_(["day", "full"]),
-            User.is_active == True,
-            User.can_duty == True,
+    """Return department duty officer, falling back to the shared duty schedule."""
+    def find_duty(scope_id: int | None):
+        query = (
+            db.query(DutySchedule)
+            .join(User, DutySchedule.user_id == User.id)
+            .filter(
+                DutySchedule.duty_date == on_date,
+                DutySchedule.department_id.is_(None) if scope_id is None else DutySchedule.department_id == scope_id,
+                DutySchedule.shift.in_(["day", "full"]),
+                User.is_active == True,
+                User.can_duty == True,
+            )
         )
-        .order_by((DutySchedule.shift == "full").desc(), DutySchedule.id)
-        .first()
-    )
-    return duty.user if duty else None
+        if scope_id is not None:
+            query = query.join(Department, DutySchedule.department_id == Department.id).filter(
+                Department.duty_enabled == True,
+                Department.is_active == True,
+            )
+        return query.order_by((DutySchedule.shift == "full").desc(), DutySchedule.id).first()
+
+    if department_id is not None:
+        local = find_duty(department_id)
+        if local:
+            return local.user
+    shared = find_duty(None)
+    return shared.user if shared else None
 
 def get_users_by_specialty(db: Session, specialty: str | None, department_id: int | None = None) -> list:
     q = db.query(User).filter(
@@ -139,9 +141,8 @@ def _planned_dates_for_period(year: int, month: int, periodicity: str) -> list:
     mid = date(year, month, min(15, month_end.day))
 
     if periodicity == "daily":
-        # не создаём daily-задачи на каждый день пачкой — только «якорную» на 1-е
-        # (ежедневный контроль ведётся отдельно модулем DailyCheck)
-        return [month_start]
+        # Ежедневные регламенты создают отдельную задачу на каждый календарный день.
+        return [month_start + timedelta(days=offset) for offset in range((month_end - month_start).days + 1)]
 
     if periodicity == "monthly":
         return [mid]
@@ -250,8 +251,7 @@ def generate_plans_for_period(
                         PPRPlan.template_id == tpl.id,
                         PPRPlan.object_id.is_(None),
                         PPRPlan.department_id == department_id,
-                        PPRPlan.planned_date >= month_start,
-                        PPRPlan.planned_date <= month_end,
+                        PPRPlan.planned_date == planned,
                         PPRPlan.status != "cancelled",
                     )
                     .first()
@@ -313,8 +313,7 @@ def generate_plans_for_period(
                             PPRPlan.object_id == obj.id,
                             PPRPlan.department_id == department_id,
                             PPRPlan.template_id == tpl.id,
-                            PPRPlan.planned_date >= month_start,
-                            PPRPlan.planned_date <= month_end,
+                            PPRPlan.planned_date == planned,
                             PPRPlan.status != "cancelled",
                         )
                         .first()
