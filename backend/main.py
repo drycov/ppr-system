@@ -87,6 +87,8 @@ def on_startup():
             seed.import_integration_objects(db)
             seed.import_voles_objects(db)
             seed.seed_sample_plans(db)
+        # Новые регламенты ЦОД добавляются идемпотентно и на уже заполненной БД.
+        seed.seed_data_center_templates(db)
     finally:
         db.close()
     # Start the configured background scheduler after schema and seed initialization.
