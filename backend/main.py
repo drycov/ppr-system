@@ -49,6 +49,14 @@ def on_startup():
     if "department_id" not in duty_columns:
         with engine.begin() as conn:
             conn.exec_driver_sql("ALTER TABLE duty_schedules ADD COLUMN department_id INTEGER REFERENCES departments(id)")
+    user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+    with engine.begin() as conn:
+        if "telegram_chat_id" not in user_columns:
+            conn.exec_driver_sql("ALTER TABLE users ADD COLUMN telegram_chat_id VARCHAR(64)")
+        if "telegram_status" not in user_columns:
+            conn.exec_driver_sql("ALTER TABLE users ADD COLUMN telegram_status VARCHAR(20) NOT NULL DEFAULT 'unlinked'")
+        if "telegram_pending_phone" not in user_columns:
+            conn.exec_driver_sql("ALTER TABLE users ADD COLUMN telegram_pending_phone VARCHAR(50)")
     # Подразделение относится к задаче ППР, объект не закрепляется за подразделением.
     plan_columns = {column["name"] for column in inspect(engine).get_columns("ppr_plans")}
     if "department_id" not in plan_columns:
@@ -873,6 +881,66 @@ def list_staff(
     if can_do_ppr is not None:
         q = q.filter(User.can_do_ppr == can_do_ppr)
     return q.order_by(User.full_name).all()
+
+
+@app.get("/api/telegram/registrations")
+def list_telegram_registrations(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    rows = (
+        db.query(User)
+        .options(joinedload(User.department))
+        .filter(User.telegram_status == "pending")
+        .order_by(User.full_name)
+        .all()
+    )
+    return [{
+        "id": row.id,
+        "full_name": row.full_name,
+        "username": row.username,
+        "phone": row.phone,
+        "pending_phone": row.telegram_pending_phone,
+        "telegram_chat_id": row.telegram_chat_id,
+        "position": row.position,
+        "department_id": row.department_id,
+        "department_name": row.department.name if row.department else None,
+    } for row in rows]
+
+
+@app.post("/api/telegram/registrations/{staff_id}/approve")
+def approve_telegram_registration(staff_id: int, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    row = db.query(User).filter(User.id == staff_id, User.telegram_status == "pending").first()
+    if not row:
+        raise HTTPException(404, "Заявка не найдена")
+    if not row.telegram_chat_id:
+        raise HTTPException(422, "В заявке отсутствует Telegram Chat ID")
+    row.phone = row.telegram_pending_phone or row.phone
+    row.telegram_pending_phone = None
+    row.telegram_status = "approved"
+    db.commit()
+    try:
+        from telegram_bot import send_telegram_to_chat
+        send_telegram_to_chat(row.telegram_chat_id, "✅ Ваша привязка Telegram одобрена. Теперь доступны команды /who, /week, /schedule, /status и /whoami.")
+    except Exception:
+        logger.exception("Could not notify Telegram registration approval")
+    return {"ok": True, "staff_id": row.id, "telegram_status": row.telegram_status}
+
+
+@app.post("/api/telegram/registrations/{staff_id}/reject")
+def reject_telegram_registration(staff_id: int, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    row = db.query(User).filter(User.id == staff_id, User.telegram_status == "pending").first()
+    if not row:
+        raise HTTPException(404, "Заявка не найдена")
+    chat_id = row.telegram_chat_id
+    row.telegram_chat_id = None
+    row.telegram_pending_phone = None
+    row.telegram_status = "unlinked"
+    db.commit()
+    try:
+        from telegram_bot import send_telegram_to_chat
+        if chat_id:
+            send_telegram_to_chat(chat_id, "Заявка на привязку Telegram отклонена. Проверьте данные или обратитесь к администратору.")
+    except Exception:
+        logger.exception("Could not notify Telegram registration rejection")
+    return {"ok": True, "staff_id": row.id, "telegram_status": row.telegram_status}
 
 
 @app.post("/api/staff", response_model=schemas.StaffOut)
