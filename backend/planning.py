@@ -2,7 +2,7 @@
 from datetime import date, timedelta
 from calendar import monthrange
 from sqlalchemy.orm import Session
-from models import Object, PPRTemplate, PPRPlan, User, DutySchedule
+from models import Object, PPRTemplate, PPRPlan, User, DutySchedule, Department
 from settings_service import get_setting
 
 
@@ -56,7 +56,10 @@ def get_duty_user(db: Session, on_date: date, department_id: int | None = None) 
     duty = (
         db.query(DutySchedule)
         .join(User, DutySchedule.user_id == User.id)
+        .join(Department, DutySchedule.department_id == Department.id)
         .filter(
+            Department.duty_enabled == True,
+            Department.is_active == True,
             DutySchedule.duty_date == on_date,
             DutySchedule.department_id == department_id,
             DutySchedule.shift.in_(["day", "full"]),
