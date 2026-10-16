@@ -166,6 +166,8 @@ async def _poll(token: str):
     global _loop, _dispatcher
     _loop = asyncio.get_running_loop()
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot_identity = await bot.get_me()
+    bot_username = (bot_identity.username or "").casefold()
     dp = Dispatcher()
     _dispatcher = dp
 
@@ -196,10 +198,20 @@ async def _poll(token: str):
         finally:
             db.close()
 
+    def _actor_chat_id(message: Message) -> int:
+        # In groups, use the sender's private Telegram user ID, not the group's chat ID.
+        if message.chat.type in {"group", "supergroup"} and message.from_user:
+            return message.from_user.id
+        return message.chat.id
+
     async def _show_profile(message: Message, start_registration: bool = False):
+        if message.chat.type in {"group", "supergroup"}:
+            await _send(message, "Для регистрации и просмотра личных данных откройте личный чат с ботом и отправьте /start или /register.")
+            return
+        actor_chat_id = _actor_chat_id(message)
         db = _db()
         try:
-            user = _linked_user(db, message.chat.id)
+            user = _linked_user(db, actor_chat_id)
             if user:
                 dept = html.escape(user.department.name if user.department else "не указано")
                 position = html.escape(user.position or "не указана")
@@ -216,7 +228,7 @@ async def _poll(token: str):
                 return
             from models import User
             pending = db.query(User).filter(
-                User.telegram_chat_id == str(message.chat.id),
+                User.telegram_chat_id == str(actor_chat_id),
                 User.telegram_status == "pending",
             ).first()
             if pending:
@@ -241,10 +253,16 @@ async def _poll(token: str):
 
     @dp.message(Command("start"))
     async def start(message: Message):
+        if message.chat.type in {"group", "supergroup"}:
+            await _send(message, "Бот работает в этой группе. Для регистрации и личных команд откройте личный чат с ботом: /start")
+            return
         await _show_profile(message, start_registration=True)
 
     @dp.message(Command("register"))
     async def register(message: Message):
+        if message.chat.type in {"group", "supergroup"}:
+            await _send(message, "Регистрация и обновление телефона доступны только в личном чате с ботом. Откройте бота и отправьте /register.")
+            return
         db = _db()
         try:
             linked = _linked_user(db, message.chat.id)
@@ -283,9 +301,10 @@ async def _poll(token: str):
 
     @dp.message(Command("status"))
     async def status(message: Message):
+        actor_chat_id = _actor_chat_id(message)
         db = _db()
         try:
-            user = _linked_user(db, message.chat.id)
+            user = _linked_user(db, actor_chat_id)
             if not user:
                 await _send(message, "Аккаунт не привязан или заявка ещё не одобрена. Используйте /register или обратитесь к администратору.")
                 return
@@ -311,9 +330,10 @@ async def _poll(token: str):
         await _show_personal_schedule(message, days=30, week_only=False)
 
     async def _show_personal_schedule(message: Message, days: int, week_only: bool):
+        actor_chat_id = _actor_chat_id(message)
         db = _db()
         try:
-            user = _linked_user(db, message.chat.id)
+            user = _linked_user(db, actor_chat_id)
             if not user:
                 await _send(message, "Аккаунт не привязан или заявка ещё не одобрена. Используйте /register или обратитесь к администратору.")
                 return
@@ -352,6 +372,42 @@ async def _poll(token: str):
             await _send(message, "Не удалось получить график. Попробуйте позже.")
         finally:
             db.close()
+
+    @dp.message()
+    async def addressed_group_message(message: Message):
+        """Handle natural-language requests explicitly addressed to the bot in groups."""
+        if message.chat.type not in {"group", "supergroup"} or not message.from_user or message.from_user.is_bot:
+            return
+        text = (message.text or message.caption or "").strip()
+        if not text:
+            return
+        mentioned = bool(bot_username and re.search(r"(?<![\\w])@" + re.escape(bot_username) + r"(?![\\w])", text, re.I))
+        replied_to_bot = bool(
+            message.reply_to_message
+            and message.reply_to_message.from_user
+            and message.reply_to_message.from_user.is_bot
+            and (not bot_username or (message.reply_to_message.from_user.username or "").casefold() == bot_username)
+        )
+        if not mentioned and not replied_to_bot:
+            return
+        query = re.sub(r"(?<![\\w])@" + re.escape(bot_username) + r"(?![\\w])", "", text, flags=re.I).strip() if mentioned and bot_username else text
+        query = re.sub(r"^[,\\s:;.!?—–-]+|[,\\s:;.!?—–-]+$", "", query).casefold()
+        if query.startswith("/"):
+            return  # Slash commands are handled by their dedicated command handlers.
+        if any(term in query for term in ("кто дежурит", "кто сегодня дежур", "дежурные сегодня", "кто на дежурстве")):
+            await _show_who(message)
+        elif any(term in query for term in ("мои данные", "кто я", "мой профиль", "whoami")):
+            await _show_profile(message)
+        elif any(term in query for term in ("дежурю ли я", "я дежурю", "мой статус", "status")):
+            await status(message)
+        elif any(term in query for term in ("мои дежурства на неделе", "дежурства на этой неделе", "моя неделя", "week")):
+            await _show_personal_schedule(message, days=7, week_only=True)
+        elif any(term in query for term in ("мои дежурства", "мой график", "ближайшие дежурства", "schedule")):
+            await _show_personal_schedule(message, days=30, week_only=False)
+        elif any(term in query for term in ("помощь", "команды", "help")):
+            await _send(message, "<b>Команды бота</b>\\n" + _commands() + "\\n\\nЛичные данные и регистрация доступны в личном чате с ботом.")
+        else:
+            await _send(message, "Обратитесь ко мне командой /who, /status, /week или /schedule либо напишите @" + html.escape(bot_identity.username or "бот") + " кто дежурит сегодня.")
 
     @dp.message()
     async def registration_input(message: Message):
