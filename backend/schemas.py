@@ -14,6 +14,7 @@ class ObjectBase(BaseModel):
     status: str = "active"
     responsible_default: Optional[str] = None
     notes: Optional[str] = None
+    parent_us_id: Optional[int] = None
 
     @field_validator("responsible_default", mode="before")
     @classmethod
@@ -35,6 +36,7 @@ class ObjectUpdate(BaseModel):
     responsible_default: Optional[str] = None
     department_id: Optional[int] = None
     notes: Optional[str] = None
+    parent_us_id: Optional[int] = None
 
     @field_validator("responsible_default", mode="before")
     @classmethod
@@ -44,6 +46,7 @@ class ObjectUpdate(BaseModel):
 
 class ObjectOut(ObjectBase):
     id: int
+    parent_us_id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
