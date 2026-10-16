@@ -10,6 +10,19 @@ from sqlalchemy.orm import Session, joinedload
 from models import DailyCheck, Department, Object, PPRPlan, PPRTemplate
 
 
+NETWORK_OBJECT_TYPES = {
+    "network", "us", "cod", "core_router", "core_switch",
+    "access_switch", "edge_router", "wifi_controller", "server", "ups",
+}
+
+
+def _is_network_department(department: Department | None) -> bool:
+    if not department:
+        return False
+    identity = f"{department.name or ''} {department.code or ''}".casefold()
+    return "сет" in identity or "network" in identity
+
+
 THIN = Border(*( [Side(style="thin")] * 4 ))
 HEADER_FILL = PatternFill("solid", fgColor="0F766E")
 HEADER_FONT = Font(bold=True, color="FFFFFF", size=10)
@@ -60,39 +73,69 @@ def export_ppr_period_report(
         .all()
     )
 
-    departments_by_id = {item.id: item.name for item in db.query(Department).all()}
+    departments = db.query(Department).all()
+    departments_by_id = {item.id: item.name for item in departments}
+    network_department_ids = {item.id for item in departments if _is_network_department(item)}
+    active_objects = db.query(Object).filter(Object.status == "active").order_by(Object.object_type, Object.code).all()
     wb = Workbook()
     ws = wb.active
     ws.title = "Задачи ППР"
-    ws.merge_cells("A1:L1")
+    ws.merge_cells("A1:M1")
     department = db.query(Department).filter(Department.id == department_id).first() if department_id is not None else None
     period_title = f"Подразделение: {department.name} | " if department else ""
     ws["A1"] = f"ОТЧЁТ О ВЫПОЛНЕНИИ ППР: {period_title}{from_date:%d.%m.%Y} — {to_date:%d.%m.%Y}"
     ws["A1"].font = TITLE_FONT
     ws["A1"].alignment = Alignment(horizontal="center")
     headers = ["№", "Плановая дата", "Фактическая дата", "Объект", "Адрес", "Подразделение", "Направление",
-               "Работа", "Ответственный", "Статус", "Виды работ", "Комментарий / аудит"]
+               "Работа", "Ответственный", "Статус", "Виды работ", "Комментарий / аудит", "Перечень объектов"]
     for col, value in enumerate(headers, 1):
         ws.cell(row=3, column=col, value=value)
     _header(ws, 3, len(headers))
     ws.freeze_panes = "A4"
-    ws.auto_filter.ref = f"A3:L{max(3, len(plans) + 3)}"
+    ws.auto_filter.ref = f"A3:M{max(3, len(report_rows) + 3)}"
 
     counts = {"done": 0, "planned": 0, "in_progress": 0, "overdue": 0, "cancelled": 0, "fictitious": 0}
     labels = {"done": "Выполнено", "planned": "Запланировано", "in_progress": "В работе",
               "overdue": "Просрочено", "cancelled": "Отменено"}
-    for idx, plan in enumerate(plans, 1):
+
+    # Общая задача сетевого отдела в UI разворачивается в Excel в отдельную строку
+    # на каждый охваченный объект. Запись в БД остаётся единой.
+    report_rows = []
+    for plan in plans:
+        obj = plan.object
+        if obj is None and plan.department_id in network_department_ids:
+            template = plan.template
+            object_types = (template.object_types or []) if template else []
+            if not object_types or object_types == ["network"]:
+                covered_objects = [item for item in active_objects if item.object_type in NETWORK_OBJECT_TYPES]
+            else:
+                covered_types = set(object_types)
+                if "network" in covered_types:
+                    covered_types.update(NETWORK_OBJECT_TYPES)
+                covered_objects = [item for item in active_objects if item.object_type in covered_types]
+            if covered_objects:
+                report_rows.extend((plan, item) for item in covered_objects)
+            else:
+                report_rows.append((plan, None))
+        else:
+            report_rows.append((plan, obj))
+
+    for idx, (plan, obj) in enumerate(report_rows, 1):
         comment = plan.comment or ""
         fictitious = "ФИКТИВНАЯ ОТМЕТКА" in comment.upper() or "НЕ ПОДТВЕРЖДЕНО ФАКТИЧЕСКИ" in comment.upper()
         counts[plan.status] = counts.get(plan.status, 0) + 1
         if fictitious:
             counts["fictitious"] += 1
-        obj = plan.object
         template = plan.template
         assignee = plan.assignee_user
+        covered_objects = [obj] if obj else []
+        object_list = (
+            f"{obj.code} — {obj.name or obj.address or ''}".rstrip(" —")
+            if obj else ""
+        )
         values = [
             idx, plan.planned_date, plan.fact_date,
-            (obj.code if obj else "—"),
+            (obj.code if obj else ("Общая задача" if covered_objects else "—")),
             ((obj.address or obj.name or "") if obj else ""),
             departments_by_id.get(plan.department_id, "—"),
             (template.work_direction if template else ""),
@@ -101,6 +144,7 @@ def export_ppr_period_report(
             ("ФИКТИВНО ОТМЕЧЕНО" if fictitious else labels.get(plan.status, plan.status)),
             ", ".join(plan.work_types_done or []),
             comment,
+            object_list,
         ]
         row = idx + 3
         for col, value in enumerate(values, 1):
@@ -119,7 +163,7 @@ def export_ppr_period_report(
                 cell.fill = OVERDUE_FILL
         ws.row_dimensions[row].height = 36
 
-    for i, width in enumerate([6, 14, 14, 18, 38, 24, 20, 38, 28, 22, 28, 60], 1):
+    for i, width in enumerate([6, 14, 14, 18, 38, 24, 20, 38, 28, 22, 28, 60, 72], 1):
         ws.column_dimensions[get_column_letter(i)].width = width
 
     summary = wb.create_sheet("Сводка")
@@ -137,14 +181,14 @@ def export_ppr_period_report(
         ("Активных объектов", sum(1 for obj in objects if obj.status == "active")),
         ("Объектов типа ЦОД", sum(1 for obj in objects if obj.object_type == "cod")),
         ("Записей ежедневного контроля", len(daily_checks)),
-        ("Всего задач в периоде", len(plans)),
+        ("Всего задач в периоде", len(report_rows)),
         ("Выполнено (включая фиктивные)", counts["done"]),
         ("Из них отмечено фиктивно", counts["fictitious"]),
         ("Запланировано", counts["planned"]),
         ("В работе", counts["in_progress"]),
         ("Просрочено", counts["overdue"]),
         ("Отменено", counts["cancelled"]),
-        ("Доля выполнения, %", round(counts["done"] / len(plans) * 100, 1) if plans else 0),
+        ("Доля выполнения, %", round(counts["done"] / len(report_rows) * 100, 1) if report_rows else 0),
     ]
     for row, (label, value) in enumerate(rows, 5):
         summary.cell(row, 1, label).border = THIN
