@@ -294,3 +294,26 @@ class SettingsAudit(Base):
     action = Column(String(30), nullable=False)
     changes = Column(JSON, default=dict, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class ResponsibilityZone(Base):
+    """Зона ответственности: подразделение + регламент + сотрудник + область объектов."""
+    __tablename__ = "responsibility_zones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(150), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False, index=True)
+    template_id = Column(Integer, ForeignKey("ppr_templates.id"), nullable=False, index=True)
+    assignee_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    # Если заданы object_ids, зона применяется только к перечисленным объектам.
+    # Иначе object_types ограничивает её типами объектов; оба пусты = весь регламент.
+    object_types = Column(JSON, default=list, nullable=False)
+    object_ids = Column(JSON, default=list, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    department = relationship("Department")
+    template = relationship("PPRTemplate")
+    assignee = relationship("User")
