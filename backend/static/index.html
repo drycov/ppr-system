@@ -99,6 +99,413 @@
       renderFields(); await loadAudit();
     }
 
+
+</script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root { --primary: #0f766e; --primary-dark: #0d9488; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    .sidebar-link.active { background: rgba(15, 118, 110, 0.15); color: #0f766e; border-right: 3px solid #0f766e; }
+    .status-planned { background: #fef3c7; color: #92400e; }
+    .status-done { background: #d1fae5; color: #065f46; }
+    .status-overdue { background: #fee2e2; color: #991b1b; }
+    .status-in_progress { background: #dbeafe; color: #1e40af; }
+    .card { transition: box-shadow .15s; }
+    .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.08); }
+    .table-row:hover { background: #f8fafc; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <!-- Login overlay -->
+  <div id="login-overlay" class="fixed inset-0 z-[100] bg-gradient-to-br from-teal-800 to-teal-950 flex items-center justify-center" style="display:none">
+    <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm mx-4">
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 rounded-xl bg-teal-700 text-white font-bold text-2xl flex items-center justify-center mx-auto mb-3">П</div>
+        <h1 class="text-xl font-bold">Система ППР</h1>
+        <p class="text-sm text-slate-500">ОСС / АПК · Усть-Каменогорск</p>
+      </div>
+      <form id="login-form" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Логин</label>
+          <input name="username" value="admin" class="w-full border rounded-lg px-3 py-2 text-sm" required autocomplete="username">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Пароль</label>
+          <input name="password" type="password" value="admin" class="w-full border rounded-lg px-3 py-2 text-sm" required autocomplete="current-password">
+        </div>
+        <div id="login-err" class="text-red-600 text-sm hidden"></div>
+        <button type="submit" class="w-full py-2.5 bg-teal-700 text-white rounded-lg font-medium">Войти</button>
+      </form>
+      <p class="text-xs text-slate-400 mt-4 text-center">Логин по умолчанию: admin / admin</p>
+    </div>
+  </div>
+
+  <div class="flex h-screen overflow-hidden">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0">
+      <div class="p-5 border-b border-slate-100">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-lg bg-teal-700 flex items-center justify-center text-white font-bold text-lg">П</div>
+          <div>
+            <div class="font-semibold text-sm leading-tight">Система ППР</div>
+            <div class="text-xs text-slate-500">ОСС / АПК Усть-Каменогорск</div>
+          </div>
+        </div>
+      </div>
+      <nav class="flex-1 p-3 space-y-1 overflow-y-auto" id="nav">
+        <a href="#" data-page="dashboard" class="sidebar-link active flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i> Дашборд
+        </a>
+        <a href="#" data-page="plans" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="clipboard-list" class="w-4 h-4"></i> Задачи ППР
+        </a>
+        <a href="#" data-page="objects" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="map-pin" class="w-4 h-4"></i> Объекты
+        </a>
+        <a href="#" data-page="daily" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="calendar-check" class="w-4 h-4"></i> Ежедневный контроль
+        </a>
+        <a href="#" data-page="regulations" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="book-open" class="w-4 h-4"></i> Регламент
+        </a>
+        <a href="#" data-page="templates" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="list-checks" class="w-4 h-4"></i> Шаблоны работ
+        </a>
+        <a href="#" data-page="directories" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="library" class="w-4 h-4"></i> Справочники
+        </a>
+        <a href="#" data-page="staff" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="users" class="w-4 h-4"></i> Сотрудники
+        </a>
+        <a href="#" data-page="relocations" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="move" class="w-4 h-4"></i> Переносы
+        </a>
+        <a href="#" data-page="notifications" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="bell" class="w-4 h-4"></i> Уведомления
+        </a>
+        <a href="#" data-page="duties" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <i data-lucide="calendar-days" class="w-4 h-4"></i> Дежурства
+        </a>
+        <a href="#" data-page="settings" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"><i data-lucide="settings" class="w-4 h-4"></i> Настройки системы</a>
+      </nav>
+      <div class="p-4 border-t border-slate-100 text-xs text-slate-500 space-y-2">
+        <div id="sidebar-user" class="hidden">
+          <div class="font-medium text-slate-700 truncate" id="sidebar-user-name"></div>
+          <div class="text-slate-400" id="sidebar-user-role"></div>
+          <button type="button" onclick="doLogout()" class="mt-2 w-full py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-700 hover:border-red-200 text-xs">
+            Выйти из системы
+          </button>
+        </div>
+        <div class="font-medium text-slate-700">ТОО «Satory Company ltd»</div>
+        <div>филиал г. Усть-Каменогорск</div>
+        <div class="mt-1">ОСС · 2026</div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+      <header class="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0">
+        <h1 class="text-lg font-semibold" id="page-title">Дашборд</h1>
+        <div class="flex items-center gap-4 text-sm text-slate-600">
+          <span id="current-date"></span>
+          <div id="user-chip" class="flex items-center gap-2">
+            <div id="user-avatar" class="w-8 h-8 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center font-semibold text-xs">—</div>
+            <div class="hidden sm:block leading-tight">
+              <div id="user-name" class="font-medium text-slate-800 text-sm">Гость</div>
+              <div id="user-role" class="text-[11px] text-slate-400"></div>
+            </div>
+            <button type="button" id="btn-logout" onclick="doLogout()" title="Выйти"
+              class="ml-1 px-2 py-1.5 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100">
+              Выход
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div class="flex-1 overflow-y-auto p-6" id="content">
+        <!-- dynamic content -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast notifications -->
+  <div id="toast-container" class="fixed top-4 right-4 z-[120] flex w-full max-w-sm flex-col gap-2 pointer-events-none" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- Modal -->
+  <div id="modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+      <div class="p-5 border-b flex justify-between items-center">
+        <h3 class="font-semibold text-lg" id="modal-title">Заголовок</h3>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <div class="p-5" id="modal-body"></div>
+    </div>
+  </div>
+
+  <script>
+    const API = '';  // same origin
+
+    // ========== Utils ==========
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    // ========== Toast controller ==========
+    let toastSequence = 0;
+    function toast(message, type = 'info', options = {}) {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const id = 'toast-' + (++toastSequence);
+      const variants = {
+        success: { icon: 'check-circle-2', cls: 'border-emerald-200 bg-emerald-50 text-emerald-900' },
+        error: { icon: 'x-circle', cls: 'border-red-200 bg-red-50 text-red-900' },
+        warning: { icon: 'alert-triangle', cls: 'border-amber-200 bg-amber-50 text-amber-900' },
+        info: { icon: 'info', cls: 'border-sky-200 bg-sky-50 text-sky-900' }
+      };
+      const variant = variants[type] || variants.info;
+      const item = document.createElement('div');
+      item.id = id;
+      item.className = 'pointer-events-auto flex items-start gap-3 rounded-xl border px-4 py-3 shadow-lg transition-all duration-200 ' + variant.cls;
+      item.setAttribute('role', type === 'error' ? 'alert' : 'status');
+      const icon = document.createElement('i');
+      icon.setAttribute('data-lucide', variant.icon);
+      icon.className = 'w-5 h-5 shrink-0 mt-0.5';
+      const textNode = document.createElement('div');
+      textNode.className = 'flex-1 text-sm font-medium break-words';
+      textNode.textContent = String(message ?? '');
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'shrink-0 rounded p-0.5 opacity-70 hover:opacity-100';
+      close.setAttribute('aria-label', 'Закрыть уведомление');
+      close.innerHTML = '<i data-lucide="x" class="w-4 h-4"></i>';
+      close.onclick = () => dismissToast(id);
+      item.append(icon, textNode, close);
+      container.appendChild(item);
+      if (window.lucide) lucide.createIcons();
+      const timeout = Number(options.duration ?? (type === 'error' ? 6000 : 3500));
+      if (timeout > 0) item._toastTimer = window.setTimeout(() => dismissToast(id), timeout);
+      return id;
+    }
+    function dismissToast(id) {
+      const item = document.getElementById(id);
+      if (!item) return;
+      if (item._toastTimer) window.clearTimeout(item._toastTimer);
+      item.classList.add('opacity-0', 'translate-x-2');
+      window.setTimeout(() => item.remove(), 200);
+    }
+
+    function formatDate(d) {
+      if (!d) return '—';
+      const dt = new Date(d);
+      return dt.toLocaleDateString('ru-RU');
+    }
+
+    function statusBadge(status) {
+      const map = {
+        planned: 'Запланировано',
+        done: 'Исполнено',
+        overdue: 'Просрочено',
+        in_progress: 'В работе',
+        cancelled: 'Отменено'
+      };
+      return `<span class="status-${status} text-xs font-medium px-2 py-0.5 rounded-full">${map[status] || status}</span>`;
+    }
+
+    function typeLabel(t) {
+      const map = {
+        camera_integration: 'ИНТ (камеры)',
+        ovn: 'ОВН',
+        voles: 'ВОЛС',
+        sip: 'СИП',
+        network: 'Сеть ОСС',
+        us: 'УС (узел связи)',
+        cod: 'ЦОД',
+        core_router: 'Роутер ядра',
+        core_switch: 'Коммутатор ядра',
+        access_switch: 'Коммутатор доступа',
+        edge_router: 'Граничный роутер',
+        wifi_controller: 'Контроллер Wi-Fi',
+        server: 'Сервер',
+        ups: 'ИБП',
+        other: 'Прочее'
+      };
+      return map[t] || t;
+    }
+
+    let TOKEN = localStorage.getItem('ppr_token') || '';
+    let CURRENT_USER = JSON.parse(localStorage.getItem('ppr_user') || 'null');
+
+    async function api(path, opts = {}) {
+      const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+      if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
+      const res = await fetch(API + path, { ...opts, headers });
+      if (res.status === 401) { localStorage.clear(); location.reload(); }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(typeof err.detail === 'string' ? err.detail : (res.statusText));
+      }
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) return res.json();
+      return res;
+    }
+
+    function initialsFromName(name) {
+      if (!name) return '?';
+      const parts = String(name).trim().split(/\s+/).filter(Boolean);
+      if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+      return parts[0].slice(0, 2).toUpperCase();
+    }
+
+    const ROLE_LABELS = {
+      admin: 'Администратор',
+      head: 'Начальник ОСС',
+      engineer: 'Инженер',
+      viewer: 'Наблюдатель',
+    };
+
+    function updateUserUI() {
+      const name = (CURRENT_USER && (CURRENT_USER.full_name || CURRENT_USER.username)) || 'Гость';
+      const role = (CURRENT_USER && CURRENT_USER.role) || '';
+      const av = document.getElementById('user-avatar');
+      const un = document.getElementById('user-name');
+      const ur = document.getElementById('user-role');
+      if (av) av.textContent = initialsFromName(name);
+      if (un) un.textContent = name;
+      if (ur) ur.textContent = ROLE_LABELS[role] || role;
+      const su = document.getElementById('sidebar-user');
+      const sun = document.getElementById('sidebar-user-name');
+      const sur = document.getElementById('sidebar-user-role');
+      if (su) su.classList.toggle('hidden', !CURRENT_USER);
+      if (sun) sun.textContent = name;
+      if (sur) sur.textContent = ROLE_LABELS[role] || role;
+      const dutiesNav = document.querySelector('[data-page="duties"]');
+      if (dutiesNav) dutiesNav.classList.toggle('hidden', !CURRENT_USER || !['admin', 'head'].includes(role));
+      window.__user = CURRENT_USER;
+    }
+
+    async function doLogin(username, password) {
+      const body = new URLSearchParams({ username, password });
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const detail = err.detail;
+        throw new Error(typeof detail === 'string' ? detail : 'Неверный логин или пароль');
+      }
+      const data = await res.json();
+      TOKEN = data.access_token;
+      CURRENT_USER = {
+        full_name: data.full_name,
+        role: data.role,
+        username: username,
+      };
+      localStorage.setItem('ppr_token', TOKEN);
+      localStorage.setItem('ppr_user', JSON.stringify(CURRENT_USER));
+      // уточнить профиль
+      try {
+        const me = await api('/api/auth/me');
+        CURRENT_USER = {
+          id: me.id,
+          username: me.username,
+          full_name: me.full_name,
+          role: me.role,
+          department_id: me.department_id,
+        };
+        localStorage.setItem('ppr_user', JSON.stringify(CURRENT_USER));
+      } catch (_) {}
+      updateUserUI();
+      return data;
+    }
+
+    function doLogout() {
+      TOKEN = '';
+      CURRENT_USER = null;
+      localStorage.removeItem('ppr_token');
+      localStorage.removeItem('ppr_user');
+      updateUserUI();
+      const overlay = document.getElementById('login-overlay');
+      if (overlay) overlay.style.display = 'flex';
+      const content = document.getElementById('content');
+      if (content) content.innerHTML = '';
+      // сброс ошибки входа
+      const err = document.getElementById('login-err');
+      if (err) { err.classList.add('hidden'); err.textContent = ''; }
+    }
+
+    async function restoreSession() {
+      if (!TOKEN) {
+        updateUserUI();
+        return false;
+      }
+      try {
+        const me = await api('/api/auth/me');
+        CURRENT_USER = {
+          id: me.id,
+          username: me.username,
+          full_name: me.full_name,
+          role: me.role,
+        };
+        localStorage.setItem('ppr_user', JSON.stringify(CURRENT_USER));
+        updateUserUI();
+        return true;
+      } catch (e) {
+        TOKEN = '';
+        CURRENT_USER = null;
+        localStorage.removeItem('ppr_token');
+        localStorage.removeItem('ppr_user');
+        updateUserUI();
+        return false;
+      }
+    }
+
+
+    // ========== Navigation ==========
+    const titles = {
+      dashboard: 'Дашборд',
+      plans: 'Задачи ППР',
+      objects: 'Объекты',
+      daily: 'Ежедневный операционный контроль',
+      regulations: 'Регламент ППР',
+      templates: 'Шаблоны работ'
+    };
+
+    $$('.sidebar-link').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        $$('.sidebar-link').forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+        const page = link.dataset.page;
+        $('#page-title').textContent = titles[page] || page;
+        loadPage(page);
+      });
+    });
+
+    // ========== Pages ==========
+    async function loadPage(page) {
+      const content = $('#content');
+      content.innerHTML = '<div class="flex justify-center py-20"><div class="animate-spin w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full"></div></div>';
+      try {
+        if (page === 'dashboard') await renderDashboard(content);
+        else if (page === 'plans') await renderPlans(content);
+        else if (page === 'objects') await renderObjects(content);
+        else if (page === 'daily') await renderDaily(content);
+        else if (page === 'regulations') await renderRegulations(content);
+        else if (page === 'templates') await renderTemplates(content);
+        else if (page === 'directories') await renderDirectories(content);
+        else if (page === 'staff') await renderStaff(content);
+        else if (page === 'duties') await renderDuties(content);
+        else if (page === 'relocations') await renderRelocations(content);
+        else if (page === 'notifications') await renderNotifications(content);
+        else if (page === 'settings') await renderSystemSettings(content);
+      } catch (e) {
+        content.innerHTML = `<div class="bg-red-50 text-red-700 p-4 rounded-lg">Ошибка: ${e.message}</div>`;
+      }
+      lucide.createIcons();
+    }
+
     // ----- Dashboard -----
     async function renderDashboard(el) {
       const [stats, byType, completion] = await Promise.all([api('/api/dashboard'),api('/api/stats/by-type'),api('/api/stats/completion')]);
@@ -1613,7 +2020,7 @@ async function renderStaff(el) {
       if(reassign) reassign.onclick=async()=>{if(!confirm('Переназначить плановые задачи за '+monthNames[m]+' '+y+' по графикам подразделений? Если локального дежурного нет, будет использован общий график.'))return;try{const r=await api('/api/planning/reassign-by-duty?year='+y+'&month='+(m+1),{method:'POST'});toast(r.message||'Плановые задачи переназначены','success');loadPage('plans');}catch(e){toast(e.message||'Не удалось переназначить задачи','error');}};
     }
 
-        async function importExcelNow() {
+    async function importExcelNow() {
       if (!confirm('Импортировать объекты ИНТ/ВОЛС из Excel (backend/data/ или attachments)?')) return;
       try {
         const r = await api('/api/import/excel', { method: 'POST' });
