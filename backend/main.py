@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +26,8 @@ from excel_export import export_ppr_report
 from import_excel import import_from_excel
 from scheduler import start_scheduler
 from notifications import notify_message
+
+logger = logging.getLogger("ppr.main")
 from settings_service import SETTINGS_CATALOG, CATALOG_BY_KEY, get_settings_snapshot, save_settings, get_setting
 
 app = FastAPI(
