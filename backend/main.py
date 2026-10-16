@@ -76,6 +76,14 @@ def on_startup():
         db.close()
     # Start the configured background scheduler after schema and seed initialization.
     start_scheduler()
+    from telegram_bot import start_telegram_bot
+    start_telegram_bot(db=None)
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    from telegram_bot import stop_telegram_bot
+    stop_telegram_bot()
 
 
 # ========== System settings ==========
@@ -92,6 +100,9 @@ def update_system_settings(payload: dict, user: User = Depends(require_admin), d
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc))
+    if any(key in changed for key in ("integrations.telegram.bot_token", "integrations.telegram.enabled")):
+        from telegram_bot import restart_telegram_bot
+        restart_telegram_bot(db)
     return {"ok": True, "changed": changed, "settings": get_settings_snapshot(db)}
 
 

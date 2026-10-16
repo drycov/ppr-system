@@ -1,15 +1,18 @@
-"""Уведомления: журнал + отправка в Telegram с настройками из Web UI."""
-import os
-import json
+"""Уведомления: журнал + отправка сообщений через aiogram."""
+import asyncio
 import logging
 from datetime import date, datetime
-from urllib.request import Request, urlopen
+
+from aiogram import Bot
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 
 logger = logging.getLogger("ppr.notifications")
 
 
 def _telegram_config(db=None):
-    """Настройки из БД имеют приоритет; переменные окружения сохраняют обратную совместимость."""
+    """Настройки из БД приоритетнее переменных окружения."""
+    import os
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
     enabled = True
@@ -29,24 +32,33 @@ def _telegram_config(db=None):
     return enabled, token, chat_id
 
 
+async def _send_message_async(token: str, chat_id: str, text: str) -> bool:
+    bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    try:
+        await bot.send_message(chat_id=chat_id, text=text)
+        return True
+    except Exception:
+        logger.exception("Telegram sendMessage failed")
+        return False
+    finally:
+        await bot.session.close()
+
+
 def _send_telegram(text: str, db=None) -> bool:
     enabled, token, chat_id = _telegram_config(db)
     if not enabled or not token or not chat_id:
+        logger.info("Telegram notification skipped: integration disabled or token/chat ID missing")
         return False
     try:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        body = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "HTML"}).encode()
-        req = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
-        with urlopen(req, timeout=10) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-            return resp.status == 200 and payload.get("ok") is True
-    except Exception as e:
-        logger.warning("telegram failed: %s", e)
+        return asyncio.run(_send_message_async(token, chat_id, text))
+    except Exception:
+        logger.exception("Telegram notification failed")
         return False
 
 
 def _log(db, kind: str, message: str, meta: dict | None = None):
     from models import NotificationLog
+    import json
     row = NotificationLog(
         kind=kind,
         message=message,
