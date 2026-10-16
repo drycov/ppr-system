@@ -7,7 +7,8 @@ import logging
 import os
 import re
 import threading
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -21,7 +22,62 @@ _thread: threading.Thread | None = None
 _loop: asyncio.AbstractEventLoop | None = None
 _dispatcher: Dispatcher | None = None
 _running_token: str | None = None
-_registration: dict[int, dict] = {}
+_REGISTRATION_TTL = timedelta(hours=24)
+DEFAULT_TIMEZONE = "Asia/Almaty"
+
+
+def _today() -> date:
+    try:
+        timezone_name = os.environ.get("PPR_TIMEZONE", DEFAULT_TIMEZONE)
+        return datetime.now(ZoneInfo(timezone_name)).date()
+    except Exception:
+        logger.exception("Invalid PPR_TIMEZONE; using %s", DEFAULT_TIMEZONE)
+        return datetime.now(ZoneInfo(DEFAULT_TIMEZONE)).date()
+
+
+def _get_registration(chat_id: int) -> dict | None:
+    from models import TelegramRegistrationSession
+    db = _db()
+    try:
+        row = db.query(TelegramRegistrationSession).filter_by(chat_id=str(chat_id)).first()
+        if not row:
+            return None
+        updated = row.updated_at or datetime.utcnow()
+        if datetime.utcnow() - updated > _REGISTRATION_TTL:
+            db.delete(row)
+            db.commit()
+            return None
+        return {"step": row.step, "user_id": row.user_id}
+    finally:
+        db.close()
+
+
+def _set_registration(chat_id: int, step: str, user_id: int | None = None) -> None:
+    from models import TelegramRegistrationSession
+    db = _db()
+    try:
+        row = db.query(TelegramRegistrationSession).filter_by(chat_id=str(chat_id)).first()
+        if row is None:
+            row = TelegramRegistrationSession(chat_id=str(chat_id), step=step, user_id=user_id)
+            db.add(row)
+        else:
+            row.step, row.user_id, row.updated_at = step, user_id, datetime.utcnow()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _clear_registration(chat_id: int) -> None:
+    from models import TelegramRegistrationSession
+    db = _db()
+    try:
+        db.query(TelegramRegistrationSession).filter_by(chat_id=str(chat_id)).delete()
+        db.commit()
+    finally:
+        db.close()
 
 
 def _read_token(db=None) -> tuple[bool, str]:
@@ -80,11 +136,20 @@ def _linked_user(db, chat_id: int):
 
 
 def _duty_rows(db, start: date, end: date, user_id: int | None = None):
-    from models import DutySchedule
+    from models import Department, DutySchedule, User
+    from sqlalchemy import or_
     from sqlalchemy.orm import joinedload
-    q = db.query(DutySchedule).options(
+    q = db.query(DutySchedule).join(User, DutySchedule.user_id == User.id).outerjoin(
+        Department, DutySchedule.department_id == Department.id
+    ).options(
         joinedload(DutySchedule.user), joinedload(DutySchedule.department)
-    ).filter(DutySchedule.duty_date >= start, DutySchedule.duty_date <= end)
+    ).filter(
+        DutySchedule.duty_date >= start,
+        DutySchedule.duty_date <= end,
+        User.is_active.is_(True),
+        User.can_duty.is_(True),
+        or_(DutySchedule.department_id.is_(None), Department.duty_enabled.is_(True)),
+    )
     if user_id is not None:
         q = q.filter(DutySchedule.user_id == user_id)
     return q.order_by(DutySchedule.duty_date, DutySchedule.department_id, DutySchedule.shift).all()
@@ -101,6 +166,8 @@ async def _poll(token: str):
     global _loop, _dispatcher
     _loop = asyncio.get_running_loop()
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot_identity = await bot.get_me()
+    bot_username = (bot_identity.username or "").casefold()
     dp = Dispatcher()
     _dispatcher = dp
 
@@ -110,7 +177,7 @@ async def _poll(token: str):
     async def _show_who(message: Message):
         db = _db()
         try:
-            today = date.today()
+            today = _today()
             rows = _duty_rows(db, today, today)
             # One person may have both a global and a local assignment. Display that person once.
             seen = set()
@@ -131,10 +198,20 @@ async def _poll(token: str):
         finally:
             db.close()
 
+    def _actor_chat_id(message: Message) -> int:
+        # In groups, use the sender's private Telegram user ID, not the group's chat ID.
+        if message.chat.type in {"group", "supergroup"} and message.from_user:
+            return message.from_user.id
+        return message.chat.id
+
     async def _show_profile(message: Message, start_registration: bool = False):
+        if message.chat.type in {"group", "supergroup"}:
+            await _send(message, "Для регистрации и просмотра личных данных откройте личный чат с ботом и отправьте /start или /register.")
+            return
+        actor_chat_id = _actor_chat_id(message)
         db = _db()
         try:
-            user = _linked_user(db, message.chat.id)
+            user = _linked_user(db, actor_chat_id)
             if user:
                 dept = html.escape(user.department.name if user.department else "не указано")
                 position = html.escape(user.position or "не указана")
@@ -149,9 +226,10 @@ async def _poll(token: str):
                     + _commands(),
                 )
                 return
-            pending = db.query(__import__("models").User).filter(
-                __import__("models").User.telegram_chat_id == str(message.chat.id),
-                __import__("models").User.telegram_status == "pending",
+            from models import User
+            pending = db.query(User).filter(
+                User.telegram_chat_id == str(actor_chat_id),
+                User.telegram_status == "pending",
             ).first()
             if pending:
                 await _send(
@@ -168,22 +246,28 @@ async def _poll(token: str):
         finally:
             db.close()
         if start_registration:
-            _registration[message.chat.id] = {"step": "name"}
+            _set_registration(message.chat.id, "name")
             await _send(message, "📝 <b>Регистрация сотрудника</b>\n\nВведите ваше ФИО (как в веб-системе):")
         else:
             await _send(message, "Аккаунт не привязан. Используйте /register для подачи заявки.")
 
     @dp.message(Command("start"))
     async def start(message: Message):
+        if message.chat.type in {"group", "supergroup"}:
+            await _send(message, "Бот работает в этой группе. Для регистрации и личных команд откройте личный чат с ботом: /start")
+            return
         await _show_profile(message, start_registration=True)
 
     @dp.message(Command("register"))
     async def register(message: Message):
+        if message.chat.type in {"group", "supergroup"}:
+            await _send(message, "Регистрация и обновление телефона доступны только в личном чате с ботом. Откройте бота и отправьте /register.")
+            return
         db = _db()
         try:
             linked = _linked_user(db, message.chat.id)
             if linked:
-                _registration[message.chat.id] = {"step": "phone", "user_id": linked.id}
+                _set_registration(message.chat.id, "phone", linked.id)
                 await _send(message, "📝 <b>Обновление данных</b>\n\nВведите актуальный номер телефона. После отправки заявка будет повторно направлена администратору.")
                 return
             from models import User
@@ -196,7 +280,7 @@ async def _poll(token: str):
                 return
         finally:
             db.close()
-        _registration[message.chat.id] = {"step": "name"}
+        _set_registration(message.chat.id, "name")
         await _send(message, "📝 <b>Регистрация сотрудника</b>\n\nВведите ваше ФИО (как в веб-системе):")
 
     @dp.message(Command("help"))
@@ -217,13 +301,14 @@ async def _poll(token: str):
 
     @dp.message(Command("status"))
     async def status(message: Message):
+        actor_chat_id = _actor_chat_id(message)
         db = _db()
         try:
-            user = _linked_user(db, message.chat.id)
+            user = _linked_user(db, actor_chat_id)
             if not user:
                 await _send(message, "Аккаунт не привязан или заявка ещё не одобрена. Используйте /register или обратитесь к администратору.")
                 return
-            today = date.today()
+            today = _today()
             rows = [d for d in _duty_rows(db, today, today, user.id)]
             if rows:
                 shifts = ", ".join({"day": "день", "night": "ночь", "full": "сутки"}.get(d.shift, d.shift) for d in rows)
@@ -245,13 +330,14 @@ async def _poll(token: str):
         await _show_personal_schedule(message, days=30, week_only=False)
 
     async def _show_personal_schedule(message: Message, days: int, week_only: bool):
+        actor_chat_id = _actor_chat_id(message)
         db = _db()
         try:
-            user = _linked_user(db, message.chat.id)
+            user = _linked_user(db, actor_chat_id)
             if not user:
                 await _send(message, "Аккаунт не привязан или заявка ещё не одобрена. Используйте /register или обратитесь к администратору.")
                 return
-            today = date.today()
+            today = _today()
             start = today - timedelta(days=today.weekday()) if week_only else today
             end = start + timedelta(days=6) if week_only else today + timedelta(days=days - 1)
             rows = _duty_rows(db, start, end, user.id)
@@ -267,17 +353,84 @@ async def _poll(token: str):
                 await _send(message, "На этот период у вас нет назначенных дежурств.")
                 return
             title = "Ваша дежурная неделя" if week_only else "Ваши ближайшие дежурства"
-            await _send(message, "<b>" + title + f" ({start.strftime('%d.%m')}–{end.strftime('%d.%m.%Y')}):</b>\n" + "\n".join(_duty_line(d) for d in deduplicated))
+            response = "<b>" + title + f" ({start.strftime('%d.%m.%Y')}–{end.strftime('%d.%m.%Y')}):</b>\n" + "\n".join(_duty_line(d) for d in deduplicated)
+            chunks = []
+            current = ""
+            for line in response.splitlines():
+                candidate = (current + "\n" + line).strip()
+                if len(candidate) > 3500 and current:
+                    chunks.append(current)
+                    current = line
+                else:
+                    current = candidate
+            if current:
+                chunks.append(current)
+            for chunk in chunks:
+                await _send(message, chunk)
         except Exception:
             logger.exception("Telegram personal schedule failed")
             await _send(message, "Не удалось получить график. Попробуйте позже.")
         finally:
             db.close()
 
+    def _is_addressed_group_message(message: Message) -> bool:
+        if message.chat.type not in {"group", "supergroup"} or not message.from_user or message.from_user.is_bot:
+            return False
+        text = (message.text or message.caption or "")
+        mentioned = bool(bot_username and re.search(r"(?<![\\w])@" + re.escape(bot_username) + r"(?![\\w])", text, re.I))
+        replied_to_bot = bool(
+            message.reply_to_message
+            and message.reply_to_message.from_user
+            and message.reply_to_message.from_user.is_bot
+            and (not bot_username or (message.reply_to_message.from_user.username or "").casefold() == bot_username)
+        )
+        return mentioned or replied_to_bot
+
+    @dp.message(_is_addressed_group_message)
+    async def addressed_group_message(message: Message):
+        """Handle natural-language requests explicitly addressed to the bot in groups."""
+        if message.chat.type not in {"group", "supergroup"} or not message.from_user or message.from_user.is_bot:
+            return
+        text = (message.text or message.caption or "").strip()
+        if not text:
+            return
+        mentioned = bool(bot_username and re.search(r"(?<![\\w])@" + re.escape(bot_username) + r"(?![\\w])", text, re.I))
+        replied_to_bot = bool(
+            message.reply_to_message
+            and message.reply_to_message.from_user
+            and message.reply_to_message.from_user.is_bot
+            and (not bot_username or (message.reply_to_message.from_user.username or "").casefold() == bot_username)
+        )
+        if not mentioned and not replied_to_bot:
+            return
+        query = re.sub(r"(?<![\\w])@" + re.escape(bot_username) + r"(?![\\w])", "", text, flags=re.I).strip() if mentioned and bot_username else text
+        query = re.sub(r"^[,\\s:;.!?—–-]+|[,\\s:;.!?—–-]+$", "", query).casefold()
+        if query.startswith("/"):
+            return  # Slash commands are handled by their dedicated command handlers.
+        if any(term in query for term in ("кто дежурит", "кто сегодня дежур", "дежурные сегодня", "кто на дежурстве")):
+            await _show_who(message)
+        elif any(term in query for term in ("мои данные", "кто я", "мой профиль", "whoami")):
+            await _show_profile(message)
+        elif any(term in query for term in ("дежурю ли я", "я дежурю", "мой статус", "status")):
+            await status(message)
+        elif any(term in query for term in ("мои дежурства на неделе", "дежурства на этой неделе", "моя неделя", "week")):
+            await _show_personal_schedule(message, days=7, week_only=True)
+        elif any(term in query for term in ("мои дежурства", "мой график", "ближайшие дежурства", "schedule")):
+            await _show_personal_schedule(message, days=30, week_only=False)
+        elif any(term in query for term in ("помощь", "команды", "help")):
+            await _send(message, "<b>Команды бота</b>\\n" + _commands() + "\\n\\nЛичные данные и регистрация доступны в личном чате с ботом.")
+        else:
+            await _send(message, "Обратитесь ко мне командой /who, /status, /week или /schedule либо напишите @" + html.escape(bot_identity.username or "бот") + " кто дежурит сегодня.")
+
     @dp.message()
     async def registration_input(message: Message):
         chat_id = message.chat.id
-        state = _registration.get(chat_id)
+        try:
+            state = _get_registration(chat_id)
+        except Exception:
+            logger.exception("Could not load Telegram registration session")
+            await _send(message, "Не удалось продолжить регистрацию. Отправьте /register, чтобы начать заново.")
+            return
         if not state:
             return
         text = (message.text or "").strip()
@@ -285,7 +438,7 @@ async def _poll(token: str):
             await _send(message, "Отправьте текстовое сообщение или /cancel для отмены.")
             return
         if text.casefold() in {"/cancel", "отмена"}:
-            _registration.pop(chat_id, None)
+            _clear_registration(chat_id)
             await _send(message, "Регистрация отменена.")
             return
         db = _db()
@@ -308,7 +461,7 @@ async def _poll(token: str):
                     await _send(message, "Заявка этого сотрудника уже отправлена из другого Telegram.")
                     return
                 state.update({"step": "phone", "user_id": user.id})
-                _registration[chat_id] = state
+                _set_registration(chat_id, "phone", user.id)
                 await _send(message, f"👤 Найден сотрудник: <b>{html.escape(user.full_name or user.username or '—')}</b>\n📱 Текущий телефон: {html.escape(user.phone or 'не указан')}\n\nВведите номер телефона (например: +77001234567):")
                 return
             if state["step"] == "phone":
@@ -318,7 +471,7 @@ async def _poll(token: str):
                     return
                 user = db.query(User).filter(User.id == state["user_id"], User.is_active.is_(True)).first()
                 if not user:
-                    _registration.pop(chat_id, None)
+                    _clear_registration(chat_id)
                     await _send(message, "Сотрудник больше не активен. Обратитесь к администратору.")
                     return
                 other = db.query(User).filter(
@@ -333,7 +486,7 @@ async def _poll(token: str):
                 user.telegram_pending_phone = phone
                 user.telegram_status = "pending"
                 db.commit()
-                _registration.pop(chat_id, None)
+                _clear_registration(chat_id)
                 dept = html.escape(user.department.name if user.department else "не указано")
                 pos = html.escape(user.position or "не указана")
                 await _send(
