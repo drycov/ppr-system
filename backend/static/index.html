@@ -1516,7 +1516,10 @@
     }
     function closeModal() {
       $('#modal').classList.add('hidden');
-      $('#modal').classList.remove('flex');
+      $('#modal').classList.remove('flex','staff-modal');
+      const panel=$('#modal').firstElementChild;
+      if(panel){panel.classList.remove('max-w-3xl');panel.classList.add('max-w-lg');}
+      $('#modal-body').classList.remove('max-h-[calc(90vh-5rem)]','overflow-y-auto');
     }
 
     
@@ -1964,6 +1967,11 @@ async function renderStaff(el) {
         '<label class="mt-3 block"><span class="mb-1 block text-xs text-slate-500">Примечание</span><textarea name="notes" rows="3" class="'+cls+'">'+v('notes')+'</textarea></label></section>'+
         (s?'<section class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-500">Telegram</div><div class="mt-1">'+(s.telegram_status==='approved'?'Привязан':s.telegram_status==='pending'?'Ожидает одобрения':'Не привязан')+'</div>'+(s.telegram_chat_id?'<div class="mt-1 font-mono text-xs text-slate-500">Chat ID: '+v('telegram_chat_id')+'</div>':'')+'</section>':'')+
         '<div class="flex justify-end gap-2 border-t pt-4"><button type="button" id="staff-cancel" class="rounded-xl border px-4 py-2.5">Отмена</button><button type="submit" class="rounded-xl bg-teal-700 px-4 py-2.5 font-semibold text-white">'+(s?'Сохранить изменения':'Создать сотрудника')+'</button></div></form>';
+      const modalPanel=$('#modal').firstElementChild;
+      modalPanel.classList.remove('max-w-lg');
+      modalPanel.classList.add('max-w-3xl');
+      $('#modal-body').classList.add('max-h-[calc(90vh-5rem)]','overflow-y-auto');
+      $('#modal').classList.add('staff-modal');
       openModal();$('#staff-cancel').onclick=closeModal;
       const dep=$('#staff-dept'),pos=$('#staff-pos');const filterPos=()=>{Array.from(pos.options).forEach((o,i)=>{if(i===0)return;o.hidden=!!(dep.value&&o.dataset.dept&&o.dataset.dept!==dep.value);});if(pos.selectedOptions[0]?.hidden)pos.value='';};dep.onchange=filterPos;filterPos();
       $('#staff-form').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,fd=new FormData(form),pid=fd.get('position_id')?Number(fd.get('position_id')):null,po=positions.find(p=>Number(p.id)===pid);const payload={full_name:String(fd.get('full_name')||'').trim(),phone:String(fd.get('phone')||'').trim()||null,email:String(fd.get('email')||'').trim()||null,surname:String(fd.get('surname')||'').trim()||null,first_name:String(fd.get('first_name')||'').trim()||null,patronymic:String(fd.get('patronymic')||'').trim()||null,gender:fd.get('gender')||null,department_id:fd.get('department_id')?Number(fd.get('department_id')):null,position_id:pid,position:po?.name||null,role:fd.get('role'),ppr_specialty:fd.get('ppr_specialty')||null,can_do_ppr:fd.get('can_do_ppr')==='on',can_duty:fd.get('can_duty')==='on',notes:String(fd.get('notes')||'').trim()||null};const password=String(fd.get('password')||'');if(password)payload.password=password;if(!s){payload.username=String(fd.get('username')||'').trim();if(!payload.username||!password){toast('Укажите логин и пароль','error');return;}}if(!payload.full_name){toast('Укажите ФИО','error');return;}const btn=form.querySelector('button[type=submit]');btn.disabled=true;btn.textContent='Сохранение…';try{await api(s?'/api/staff/'+s.id:'/api/staff',{method:s?'PATCH':'POST',body:JSON.stringify(payload)});closeModal();toast(s?'Карточка сотрудника обновлена':'Сотрудник создан');await loadPage('staff');}catch(err){toast(err.message||'Не удалось сохранить сотрудника','error');btn.disabled=false;btn.textContent=s?'Сохранить изменения':'Создать сотрудника';}};
