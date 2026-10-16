@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database import Base
-from models import Department, DailyCheck, Object, PPRPlan, PPRTemplate
+from models import Department, DailyCheck, Object, PPRPlan, PPRTemplate, User
 from planning import _planned_dates_for_period, generate_plans_for_period
 from report_service import export_ppr_period_report
 
@@ -32,6 +32,46 @@ class PPRCoverageTests(unittest.TestCase):
         self.assertEqual(len(dates), 31)
         self.assertEqual(dates[0], date(2026, 10, 1))
         self.assertEqual(dates[-1], date(2026, 10, 31))
+
+    def test_daily_tasks_follow_object_responsibility(self):
+        department = Department(name="Отдел ОВН", is_active=True, duty_enabled=True)
+        owner = User(
+            username="ivanov", full_name="Иванов Иван Иванович",
+            surname="Иванов", first_name="Иван", patronymic="Иванович",
+            department_id=1, is_active=True, can_do_ppr=True,
+            ppr_specialty="installer", position="Монтажник",
+        )
+        other = User(
+            username="petrov", full_name="Петров Пётр Петрович",
+            department_id=1, is_active=True, can_do_ppr=True,
+            ppr_specialty="installer", position="Монтажник",
+        )
+        obj = Object(
+            code="OVN-01", name="Объект ОВН", object_type="ovn",
+            status="active", responsible_default="Иванов Иван Иванович",
+        )
+        template = PPRTemplate(
+            code="OVN-D1", name="Ежедневный осмотр ОВН",
+            object_types=["ovn"], work_items=["Осмотр"],
+            periodicity="daily", work_direction="installer", is_active=True,
+            department_ids=[], excluded_department_ids=[],
+        )
+        self.db.add(department)
+        self.db.commit()
+        owner.department_id = department.id
+        other.department_id = department.id
+        self.db.add_all([owner, other, obj, template])
+        self.db.commit()
+
+        generate_plans_for_period(
+            self.db, 2026, 10, only_without_plan=True,
+            prefer_duty=False, include_daily_templates=True,
+            department_id=department.id,
+        )
+        plans = self.db.query(PPRPlan).filter_by(object_id=obj.id).all()
+        self.assertEqual(len(plans), 31)
+        self.assertTrue(all(plan.assignee_id == owner.id for plan in plans))
+        self.assertTrue(all(plan.responsible == owner.full_name for plan in plans))
 
     def test_daily_template_creates_per_object_per_day_without_duplicates(self):
         department = Department(name="ОСС", is_active=True, duty_enabled=True)
