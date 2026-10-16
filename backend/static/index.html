@@ -1161,6 +1161,7 @@
 
     async function openObjectModal(objectId) {
       let obj = null;
+      const usNodes = await api('/api/objects?object_type=us&limit=200').catch(() => []);
       if (objectId) {
         obj = await api('/api/objects/' + objectId);
       }
@@ -1209,6 +1210,14 @@
             <label class="block text-slate-600 mb-1">Адрес</label>
             <input name="address" value="${obj ? (obj.address||'').replace(/"/g,'&quot;') : ''}" class="w-full border rounded-lg px-3 py-2" placeholder="г. Усть-Каменогорск, ...">
           </div>
+          <div id="parent-us-wrap" style="display:${['ovn','camera_integration','lu','p'].includes(st) ? 'block' : 'none'}">
+            <label class="block text-slate-600 mb-1">Родительский узел связи (УС)</label>
+            <select name="parent_us_id" class="w-full border rounded-lg px-3 py-2">
+              <option value="">— без привязки к УС —</option>
+              ${usNodes.filter(node => !obj || Number(node.id) !== Number(obj.id)).map(node => `<option value="${node.id}" ${Number(obj?.parent_us_id)===Number(node.id)?'selected':''}>${node.code} — ${node.address || node.name || ''}</option>`).join('')}
+            </select>
+            <p class="mt-1 text-xs text-slate-500">Состав УС рассчитывается по привязанным адресам.</p>
+          </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-slate-600 mb-1">Кол-во камер</label>
@@ -1254,6 +1263,9 @@
         };
       }
 
+      const objectTypeSelect = document.querySelector('#object-form select[name="object_type"]');
+      if (objectTypeSelect) objectTypeSelect.addEventListener('change', () => { const wrap = document.getElementById('parent-us-wrap'); if (wrap) wrap.style.display = ['ovn','camera_integration','lu','p'].includes(objectTypeSelect.value) ? 'block' : 'none'; });
+
       document.getElementById('object-form').onsubmit = async (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
@@ -1266,6 +1278,7 @@
           status: fd.get('status'),
           responsible_default: fd.get('responsible_default') || null,
           notes: fd.get('notes') || null,
+          parent_us_id: ['ovn','camera_integration','lu','p'].includes(fd.get('object_type')) && fd.get('parent_us_id') ? Number(fd.get('parent_us_id')) : null,
         };
         try {
           if (isEdit) {
