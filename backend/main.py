@@ -45,6 +45,10 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    department_columns = {column["name"] for column in inspect(engine).get_columns("departments")}
+    if "duty_enabled" not in department_columns:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TABLE departments ADD COLUMN duty_enabled BOOLEAN NOT NULL DEFAULT 1")
     duty_columns = {column["name"] for column in inspect(engine).get_columns("duty_schedules")}
     if "department_id" not in duty_columns:
         with engine.begin() as conn:
@@ -1023,6 +1027,8 @@ def create_duty(data: schemas.DutyCreate, user: User = Depends(require_user), db
         department = db.query(Department).filter(Department.id == data.department_id).first()
         if not department or not department.is_active:
             raise HTTPException(422, "Подразделение не найдено или неактивно")
+        if not department.duty_enabled:
+            raise HTTPException(422, "Это подразделение исключено из дежурств")
         if staff.department_id != data.department_id:
             raise HTTPException(422, "Для графика подразделения выберите сотрудника этого подразделения")
     existing = db.query(DutySchedule).filter(
