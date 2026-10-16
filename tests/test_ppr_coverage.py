@@ -62,6 +62,45 @@ class PPRCoverageTests(unittest.TestCase):
         self.assertEqual(second["created"], 0)
         self.assertEqual(second["skipped"], 31)
 
+
+    def test_network_department_generates_one_shared_plan_and_report_lists_objects(self):
+        department = Department(name="Отдел сетей связи и группа IT", code="NET", is_active=True, duty_enabled=True)
+        objects = [
+            Object(code="CORE-01", name="Ядро сети", object_type="core_router", status="active"),
+            Object(code="SW-01", name="Коммутатор доступа", object_type="access_switch", status="active"),
+            Object(code="CAM-01", name="Камера", object_type="camera_integration", status="active"),
+        ]
+        template = PPRTemplate(
+            code="NET-1", name="Проверка сетевой инфраструктуры",
+            object_types=["network"], work_items=["Проверить состояние сети"],
+            periodicity="monthly", work_direction="network_engineer", is_active=True,
+            department_ids=[], excluded_department_ids=[],
+        )
+        self.db.add_all([department, *objects, template])
+        self.db.commit()
+
+        result = generate_plans_for_period(
+            self.db, 2026, 10, only_without_plan=True,
+            prefer_duty=False, include_daily_templates=True,
+            department_id=department.id,
+        )
+        plans = self.db.query(PPRPlan).filter_by(department_id=department.id).all()
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(len(plans), 1)
+        self.assertIsNone(plans[0].object_id)
+
+        data = export_ppr_period_report(
+            self.db, date(2026, 10, 1), date(2026, 10, 31), department_id=department.id
+        )
+        workbook = load_workbook(BytesIO(data), read_only=True)
+        sheet = workbook["Задачи ППР"]
+        self.assertEqual(sheet.cell(row=3, column=13).value, "Перечень объектов")
+        object_list = sheet.cell(row=4, column=13).value
+        self.assertIn("CORE-01", object_list)
+        self.assertIn("SW-01", object_list)
+        self.assertNotIn("CAM-01", object_list)
+        workbook.close()
+
     def test_report_contains_all_objects_and_daily_checks(self):
         self.db.add_all([
             Object(code="INT-01", name="Камера", object_type="camera_integration", status="active"),
