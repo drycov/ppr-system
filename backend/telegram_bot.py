@@ -373,7 +373,20 @@ async def _poll(token: str):
         finally:
             db.close()
 
-    @dp.message()
+    def _is_addressed_group_message(message: Message) -> bool:
+        if message.chat.type not in {"group", "supergroup"} or not message.from_user or message.from_user.is_bot:
+            return False
+        text = (message.text or message.caption or "")
+        mentioned = bool(bot_username and re.search(r"(?<![\\w])@" + re.escape(bot_username) + r"(?![\\w])", text, re.I))
+        replied_to_bot = bool(
+            message.reply_to_message
+            and message.reply_to_message.from_user
+            and message.reply_to_message.from_user.is_bot
+            and (not bot_username or (message.reply_to_message.from_user.username or "").casefold() == bot_username)
+        )
+        return mentioned or replied_to_bot
+
+    @dp.message(_is_addressed_group_message)
     async def addressed_group_message(message: Message):
         """Handle natural-language requests explicitly addressed to the bot in groups."""
         if message.chat.type not in {"group", "supergroup"} or not message.from_user or message.from_user.is_bot:
