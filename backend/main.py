@@ -12,7 +12,7 @@ from pathlib import Path
 from io import BytesIO
 
 from database import get_db, engine, Base
-from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule, Department, Position, SystemRole, RelocationLog, NotificationLog, SystemSetting, SettingsAudit
+from models import Object, PPRTemplate, PPRPlan, DailyCheck, User, DutySchedule, Department, Position, SystemRole, RelocationLog, NotificationLog, SystemSetting, SettingsAudit, ResponsibilityZone
 import schemas
 import seed
 from auth import (
@@ -1407,6 +1407,114 @@ def update_department(dept_id: int, data: schemas.DepartmentUpdate, user: User =
     db.commit()
     db.refresh(d)
     return d
+
+
+
+
+# ========== Зоны ответственности ==========
+def _validate_responsibility_zone(db: Session, payload: dict, current: ResponsibilityZone | None = None):
+    department_id = payload.get("department_id", current.department_id if current else None)
+    template_id = payload.get("template_id", current.template_id if current else None)
+    assignee_id = payload.get("assignee_id", current.assignee_id if current else None)
+    object_types = payload.get("object_types", current.object_types if current else []) or []
+    object_ids = payload.get("object_ids", current.object_ids if current else []) or []
+
+    department = db.query(Department).filter(Department.id == department_id, Department.is_active == True).first()
+    if not department:
+        raise HTTPException(422, "Выберите активное подразделение")
+    template = db.query(PPRTemplate).filter(PPRTemplate.id == template_id, PPRTemplate.is_active == True).first()
+    if not template:
+        raise HTTPException(422, "Выберите активный регламент")
+    if department_id in (template.excluded_department_ids or []):
+        raise HTTPException(422, "Этот регламент исключён для выбранного подразделения")
+    if template.department_ids and department_id not in template.department_ids:
+        raise HTTPException(422, "Регламент не назначен выбранному подразделению")
+    if object_types and object_ids:
+        raise HTTPException(422, "Укажите либо типы объектов, либо конкретные объекты, не оба варианта")
+    if object_types:
+        allowed = {row["code"] for row in list_object_types()}
+        invalid = set(object_types) - allowed
+        if invalid:
+            raise HTTPException(422, f"Неизвестные типы объектов: {sorted(invalid)}")
+    if object_ids:
+        found = {row[0] for row in db.query(Object.id).filter(Object.id.in_(object_ids)).all()}
+        missing = set(object_ids) - found
+        if missing:
+            raise HTTPException(422, f"Не найдены объекты: {sorted(missing)}")
+    if assignee_id is not None:
+        assignee = db.query(User).filter(
+            User.id == assignee_id,
+            User.is_active == True,
+            User.can_do_ppr == True,
+            User.department_id == department_id,
+        ).first()
+        if not assignee:
+            raise HTTPException(422, "Исполнитель должен быть активным сотрудником выбранного подразделения с правом выполнять ППР")
+
+
+@app.get("/api/responsibility-zones", response_model=List[schemas.ResponsibilityZoneOut])
+def list_responsibility_zones(
+    department_id: Optional[int] = None,
+    template_id: Optional[int] = None,
+    active_only: bool = False,
+    db: Session = Depends(get_db),
+):
+    query = db.query(ResponsibilityZone)
+    if department_id is not None:
+        query = query.filter(ResponsibilityZone.department_id == department_id)
+    if template_id is not None:
+        query = query.filter(ResponsibilityZone.template_id == template_id)
+    if active_only:
+        query = query.filter(ResponsibilityZone.is_active == True)
+    return query.order_by(ResponsibilityZone.department_id, ResponsibilityZone.template_id, ResponsibilityZone.name).all()
+
+
+@app.post("/api/responsibility-zones", response_model=schemas.ResponsibilityZoneOut)
+def create_responsibility_zone(
+    data: schemas.ResponsibilityZoneCreate,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    payload = data.model_dump()
+    _validate_responsibility_zone(db, payload)
+    zone = ResponsibilityZone(**payload)
+    db.add(zone)
+    db.commit()
+    db.refresh(zone)
+    return zone
+
+
+@app.patch("/api/responsibility-zones/{zone_id}", response_model=schemas.ResponsibilityZoneOut)
+def update_responsibility_zone(
+    zone_id: int,
+    data: schemas.ResponsibilityZoneUpdate,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    zone = db.query(ResponsibilityZone).filter(ResponsibilityZone.id == zone_id).first()
+    if not zone:
+        raise HTTPException(404, "Зона ответственности не найдена")
+    payload = data.model_dump(exclude_unset=True)
+    _validate_responsibility_zone(db, payload, current=zone)
+    for key, value in payload.items():
+        setattr(zone, key, value)
+    db.commit()
+    db.refresh(zone)
+    return zone
+
+
+@app.delete("/api/responsibility-zones/{zone_id}")
+def delete_responsibility_zone(
+    zone_id: int,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    zone = db.query(ResponsibilityZone).filter(ResponsibilityZone.id == zone_id).first()
+    if not zone:
+        raise HTTPException(404, "Зона ответственности не найдена")
+    db.delete(zone)
+    db.commit()
+    return {"ok": True, "deleted_id": zone_id}
 
 
 @app.get("/api/positions", response_model=List[schemas.PositionOut])
