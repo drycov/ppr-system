@@ -365,8 +365,6 @@ def _validate_us_parent(db: Session, object_type: str, parent_us_id: Optional[in
     if object_type == "us":
         if parent_us_id is not None:
             raise HTTPException(422, "Узел связи не может быть дочерним адресом другого УС")
-        if current_id is not None and db.query(Object).filter(Object.parent_us_id == current_id).first():
-            raise HTTPException(409, "Сначала отвяжите адреса от этого УС или назначьте им другой УС")
         return
     if parent_us_id is not None:
         if object_type not in US_ADDRESS_TYPES:
@@ -427,7 +425,10 @@ def update_object(object_id: int, data: schemas.ObjectUpdate, db: Session = Depe
     if not obj:
         raise HTTPException(404, "Объект не найден")
     payload = data.model_dump(exclude_unset=True)
-    _validate_us_parent(db, payload.get("object_type", obj.object_type), payload.get("parent_us_id", obj.parent_us_id), current_id=obj.id)
+    next_type = payload.get("object_type", obj.object_type)
+    if obj.object_type == "us" and next_type != "us" and db.query(Object).filter(Object.parent_us_id == obj.id).first():
+        raise HTTPException(409, "Сначала отвяжите адреса от этого УС или назначьте им другой УС")
+    _validate_us_parent(db, next_type, payload.get("parent_us_id", obj.parent_us_id), current_id=obj.id)
     if "code" in payload and payload["code"] != obj.code:
         exists = db.query(Object).filter(Object.code == payload["code"], Object.id != object_id).first()
         if exists:
