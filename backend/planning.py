@@ -139,9 +139,8 @@ def _planned_dates_for_period(year: int, month: int, periodicity: str) -> list:
     mid = date(year, month, min(15, month_end.day))
 
     if periodicity == "daily":
-        # не создаём daily-задачи на каждый день пачкой — только «якорную» на 1-е
-        # (ежедневный контроль ведётся отдельно модулем DailyCheck)
-        return [month_start]
+        # Ежедневные регламенты создают отдельную задачу на каждый календарный день.
+        return [month_start + timedelta(days=offset) for offset in range((month_end - month_start).days + 1)]
 
     if periodicity == "monthly":
         return [mid]
@@ -250,8 +249,7 @@ def generate_plans_for_period(
                         PPRPlan.template_id == tpl.id,
                         PPRPlan.object_id.is_(None),
                         PPRPlan.department_id == department_id,
-                        PPRPlan.planned_date >= month_start,
-                        PPRPlan.planned_date <= month_end,
+                        PPRPlan.planned_date == planned,
                         PPRPlan.status != "cancelled",
                     )
                     .first()
@@ -313,8 +311,7 @@ def generate_plans_for_period(
                             PPRPlan.object_id == obj.id,
                             PPRPlan.department_id == department_id,
                             PPRPlan.template_id == tpl.id,
-                            PPRPlan.planned_date >= month_start,
-                            PPRPlan.planned_date <= month_end,
+                            PPRPlan.planned_date == planned,
                             PPRPlan.status != "cancelled",
                         )
                         .first()
