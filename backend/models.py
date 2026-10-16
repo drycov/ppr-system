@@ -101,6 +101,7 @@ class Department(Base):
     name = Column(String(200), unique=True, nullable=False)
     code = Column(String(50), nullable=True)
     is_active = Column(Boolean, default=True)
+    duty_enabled = Column(Boolean, default=True, nullable=False)
     sort_order = Column(Integer, default=0)
     notes = Column(Text, nullable=True)
     # PPR templates disabled specifically for this department.
