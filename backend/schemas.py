@@ -317,6 +317,9 @@ class StaffOut(BaseModel):
     can_duty: bool = True
     ppr_specialty: Optional[str] = None
     notes: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_status: str = "unlinked"
+    telegram_pending_phone: Optional[str] = None
 
     class Config:
         from_attributes = True
