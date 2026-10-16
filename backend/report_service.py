@@ -92,24 +92,19 @@ def export_ppr_period_report(
         ws.cell(row=3, column=col, value=value)
     _header(ws, 3, len(headers))
     ws.freeze_panes = "A4"
-    ws.auto_filter.ref = f"A3:M{max(3, len(plans) + 3)}"
+    ws.auto_filter.ref = f"A3:M{max(3, len(report_rows) + 3)}"
 
     counts = {"done": 0, "planned": 0, "in_progress": 0, "overdue": 0, "cancelled": 0, "fictitious": 0}
     labels = {"done": "Выполнено", "planned": "Запланировано", "in_progress": "В работе",
               "overdue": "Просрочено", "cancelled": "Отменено"}
-    for idx, plan in enumerate(plans, 1):
-        comment = plan.comment or ""
-        fictitious = "ФИКТИВНАЯ ОТМЕТКА" in comment.upper() or "НЕ ПОДТВЕРЖДЕНО ФАКТИЧЕСКИ" in comment.upper()
-        counts[plan.status] = counts.get(plan.status, 0) + 1
-        if fictitious:
-            counts["fictitious"] += 1
+
+    # Общая задача сетевого отдела в UI разворачивается в Excel в отдельную строку
+    # на каждый охваченный объект. Запись в БД остаётся единой.
+    report_rows = []
+    for plan in plans:
         obj = plan.object
-        template = plan.template
-        assignee = plan.assignee_user
-        covered_objects = []
-        if obj:
-            covered_objects = [obj]
-        elif plan.department_id in network_department_ids:
+        if obj is None and plan.department_id in network_department_ids:
+            template = plan.template
             object_types = (template.object_types or []) if template else []
             if not object_types or object_types == ["network"]:
                 covered_objects = [item for item in active_objects if item.object_type in NETWORK_OBJECT_TYPES]
@@ -118,9 +113,25 @@ def export_ppr_period_report(
                 if "network" in covered_types:
                     covered_types.update(NETWORK_OBJECT_TYPES)
                 covered_objects = [item for item in active_objects if item.object_type in covered_types]
-        object_list = "; ".join(
-            f"{item.code} — {item.name or item.address or ''}".rstrip(" —")
-            for item in covered_objects
+            if covered_objects:
+                report_rows.extend((plan, item) for item in covered_objects)
+            else:
+                report_rows.append((plan, None))
+        else:
+            report_rows.append((plan, obj))
+
+    for idx, (plan, obj) in enumerate(report_rows, 1):
+        comment = plan.comment or ""
+        fictitious = "ФИКТИВНАЯ ОТМЕТКА" in comment.upper() or "НЕ ПОДТВЕРЖДЕНО ФАКТИЧЕСКИ" in comment.upper()
+        counts[plan.status] = counts.get(plan.status, 0) + 1
+        if fictitious:
+            counts["fictitious"] += 1
+        template = plan.template
+        assignee = plan.assignee_user
+        covered_objects = [obj] if obj else []
+        object_list = (
+            f"{obj.code} — {obj.name or obj.address or ''}".rstrip(" —")
+            if obj else ""
         )
         values = [
             idx, plan.planned_date, plan.fact_date,
