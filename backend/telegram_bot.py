@@ -341,6 +341,28 @@ def _thread_main(token: str):
         logger.exception("Telegram polling stopped")
 
 
+
+def send_telegram_to_chat(chat_id: str | int, text: str) -> bool:
+    """Send a one-off private message using the currently configured bot token."""
+    enabled, token = _read_token()
+    if not enabled or not token or not chat_id:
+        return False
+
+    async def _send():
+        client = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        try:
+            await client.send_message(chat_id=str(chat_id), text=text)
+            return True
+        finally:
+            await client.session.close()
+
+    try:
+        return asyncio.run(_send())
+    except Exception:
+        logger.exception("Could not send Telegram private message")
+        return False
+
+
 def stop_telegram_bot():
     global _thread, _running_token
     with _lock:
