@@ -1145,6 +1145,8 @@ def create_duties_bulk(data: schemas.DutyBulkCreate, user: User = Depends(requir
         department = db.query(Department).filter(Department.id == data.department_id).first()
         if not department or not department.is_active:
             raise HTTPException(422, "Подразделение не найдено или неактивно")
+        if not department.duty_enabled:
+            raise HTTPException(422, "Это подразделение исключено из дежурств")
         if staff.department_id != data.department_id:
             raise HTTPException(422, "Для графика подразделения выберите сотрудника этого подразделения")
     dates = sorted(set(data.dates))
