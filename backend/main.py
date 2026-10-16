@@ -1425,7 +1425,7 @@ def _validate_responsibility_zone(db: Session, payload: dict, current: Responsib
     template = db.query(PPRTemplate).filter(PPRTemplate.id == template_id, PPRTemplate.is_active == True).first()
     if not template:
         raise HTTPException(422, "Выберите активный регламент")
-    if department_id in (template.excluded_department_ids or []):
+    if template.id in (department.excluded_template_ids or []) or department_id in (template.excluded_department_ids or []):
         raise HTTPException(422, "Этот регламент исключён для выбранного подразделения")
     if template.department_ids and department_id not in template.department_ids:
         raise HTTPException(422, "Регламент не назначен выбранному подразделению")
