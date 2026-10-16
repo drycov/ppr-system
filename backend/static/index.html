@@ -1794,7 +1794,10 @@
     }
 
 async function renderStaff(el) {
-      const staff = await api('/api/staff?active_only=false');
+      const [staff, telegramRegistrations] = await Promise.all([
+        api('/api/staff?active_only=false'),
+        api('/api/telegram/registrations').catch(() => [])
+      ]);
       const specLabel = { sysadmin: 'Сисадмин', installer: 'Монтажник', network_engineer: 'Сетевой инж.', head: 'Нач. ОСС' };
       const specCls = {
         sysadmin: 'bg-indigo-50 text-indigo-700',
