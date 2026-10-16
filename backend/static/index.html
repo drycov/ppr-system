@@ -1509,7 +1509,8 @@
                     const name = escapeDirectoryHtml(d.name);
                     const code = escapeDirectoryHtml(d.code || '');
                     const excluded = (d.excluded_template_ids || []).length;
-                    return '<li data-directory-item class="py-3"><div class="flex items-start gap-3"><div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-sm font-semibold text-teal-800">' + name.slice(0,1).toUpperCase() + '</div><div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap"><span class="font-medium text-sm text-slate-800">' + name + '</span><span class="text-[11px] text-slate-400">#' + d.id + '</span>' + (d.is_active === false ? '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">Неактивно</span>' : '') + '</div>' + (code ? '<div class="text-xs text-slate-500 mt-0.5">Код: ' + code + '</div>' : '') + '<div class="flex items-center gap-2 flex-wrap mt-2"><span class="rounded-full px-2 py-1 text-[11px] ' + (excluded ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500') + '">' + (excluded ? 'Исключено регламентов: ' + excluded : 'Исключения ППР не заданы') + '</span></div><div class="flex flex-wrap gap-3 mt-2"><button type="button" onclick="editDepartment(' + d.id + ')" class="text-xs font-medium text-teal-700 hover:underline">Изменить</button><button type="button" onclick="openDepartmentSettings(' + d.id + ')" class="text-xs font-medium text-slate-600 hover:underline">Настройки ППР</button></div></div></div></li>';
+                    const dutyLabel = d.duty_enabled === false ? '<span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] text-rose-700">Без дежурств</span>' : '<span class="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] text-indigo-700">Дежурства</span>';
+                    return '<li data-directory-item class="py-3"><div class="flex items-start gap-3"><div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-sm font-semibold text-teal-800">' + name.slice(0,1).toUpperCase() + '</div><div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap"><span class="font-medium text-sm text-slate-800">' + name + '</span><span class="text-[11px] text-slate-400">#' + d.id + '</span>' + (d.is_active === false ? '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">Неактивно</span>' : '') + dutyLabel + '</div>' + (code ? '<div class="text-xs text-slate-500 mt-0.5">Код: ' + code + '</div>' : '') + '<div class="flex items-center gap-2 flex-wrap mt-2"><span class="rounded-full px-2 py-1 text-[11px] ' + (excluded ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500') + '">' + (excluded ? 'Исключено регламентов: ' + excluded : 'Исключения ППР не заданы') + '</span></div><div class="flex flex-wrap gap-3 mt-2"><button type="button" onclick="editDepartment(' + d.id + ')" class="text-xs font-medium text-teal-700 hover:underline">Изменить</button><button type="button" onclick="openDepartmentSettings(' + d.id + ')" class="text-xs font-medium text-slate-600 hover:underline">Настройки ППР</button></div></div></div></li>';
                   }).join('') || '<li class="py-8 text-center text-sm text-slate-400">Подразделений пока нет</li>'}
                   <li id="directory-departments-list-no-results" class="hidden py-6 text-center text-sm text-slate-400">Ничего не найдено</li>
                 </ul>
@@ -1556,7 +1557,7 @@
 
     async function openDepartmentForm(department) {
       const editing = Boolean(department);
-      const d = department || { name: '', code: '', sort_order: 0, notes: '', is_active: true };
+      const d = department || { name: '', code: '', sort_order: 0, notes: '', is_active: true, duty_enabled: true };
       $('#modal-title').textContent = editing ? 'Изменить подразделение' : 'Новое подразделение';
       $('#modal-body').innerHTML = `
         <form id="directory-department-form" class="space-y-4">
@@ -1567,6 +1568,7 @@
           </div>
           <label class="block"><span class="block text-sm font-medium text-slate-700 mb-1">Примечание</span><textarea name="notes" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">${escapeDirectoryHtml(d.notes || '')}</textarea></label>
           <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="is_active" ${d.is_active !== false ? 'checked' : ''} class="rounded border-slate-300"> Подразделение активно</label>
+          <label class="flex items-start gap-2 rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-sm"><input type="checkbox" name="duty_enabled" ${d.duty_enabled !== false ? 'checked' : ''} class="mt-0.5 rounded border-slate-300"> <span><strong class="block text-slate-800">Участвует в дежурствах</strong><span class="mt-0.5 block text-xs text-slate-600">Отключите для подразделений, которые не входят в график. Они не показываются в календаре и не используются для назначения дежурного.</span></span></label>
           <div class="flex justify-end gap-2 border-t pt-3"><button type="button" id="directory-department-cancel" class="rounded-lg border px-4 py-2 text-sm">Отмена</button><button type="submit" id="directory-department-save" class="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white">Сохранить</button></div>
         </form>`;
       openModal();
@@ -1576,7 +1578,7 @@
         event.preventDefault();
         const save = $('#directory-department-save');
         save.disabled = true; save.textContent = 'Сохранение…';
-        const payload = { name: form.elements.name.value.trim(), code: form.elements.code.value.trim() || null, sort_order: Number(form.elements.sort_order.value || 0), notes: form.elements.notes.value.trim() || null, is_active: form.elements.is_active.checked };
+        const payload = { name: form.elements.name.value.trim(), code: form.elements.code.value.trim() || null, sort_order: Number(form.elements.sort_order.value || 0), notes: form.elements.notes.value.trim() || null, is_active: form.elements.is_active.checked, duty_enabled: form.elements.duty_enabled.checked };
         try {
           await api(editing ? '/api/departments/' + d.id : '/api/departments', { method: editing ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
           closeModal(); toast(editing ? 'Подразделение обновлено' : 'Подразделение создано', 'success'); await loadPage('directories');
@@ -1954,7 +1956,8 @@ async function renderStaff(el) {
         api('/api/duties?from_date='+from+'&to_date='+to),api('/api/staff?can_duty=true'),api('/api/duties/today'),api('/api/departments?active_only=true')
       ]);
       const activeStaff = staff.filter(s=>s.is_active!==false&&s.can_duty!==false);
-      const visibleDepartments = isAdmin ? departments : departments.filter(d=>Number(d.id)===myDepartmentId);
+      const dutyDepartments = departments.filter(d=>d.duty_enabled !== false);
+      const visibleDepartments = isAdmin ? dutyDepartments : dutyDepartments.filter(d=>Number(d.id)===myDepartmentId);
       const visibleDuties = isAdmin ? duties : duties.filter(d=>d.department_id==null||Number(d.department_id)===myDepartmentId);
       const visibleToday = isAdmin ? today : today.filter(d=>d.department_id==null||Number(d.department_id)===myDepartmentId);
       const visibleStaff = isAdmin ? activeStaff : activeStaff.filter(st=>Number(st.department_id)===myDepartmentId || visibleDuties.some(d=>d.department_id==null && Number(d.user_id)===Number(st.id)));
@@ -1984,7 +1987,7 @@ async function renderStaff(el) {
       const globalDuties = visibleDuties.filter(d=>d.department_id==null);
       const departmentCards = visibleDepartments.map(dept=>{
         const deptStaff=activeStaff.filter(st=>Number(st.department_id)===Number(dept.id));
-        const deptDuties=duties.filter(d=>Number(d.department_id)===Number(dept.id));
+        const deptDuties=visibleDuties.filter(d=>Number(d.department_id)===Number(dept.id));
         const count=deptDuties.length;
         const calendar=deptStaff.length?renderCalendar(dept.id,deptStaff,deptDuties):'<div class="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">Нет активных сотрудников подразделения с правом дежурства.</div>';
         return '<section class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"><div class="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 class="font-semibold text-slate-900">'+esc(dept.name)+'</h3><p class="mt-1 text-xs text-slate-500">Локальный график · '+count+' смен за месяц · '+deptStaff.length+' сотрудников</p></div><span class="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">Подразделение</span></div>'+calendar+'</section>';
