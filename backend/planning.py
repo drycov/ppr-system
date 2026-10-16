@@ -45,6 +45,14 @@ def infer_specialty(user: User) -> str | None:
     return None
 
 
+def is_network_department(department: Department | None) -> bool:
+    """Сетевой отдел формирует единый план работ, а не копию на каждый объект."""
+    if not department:
+        return False
+    identity = f"{department.name or ''} {department.code or ''}".casefold()
+    return "сет" in identity or "network" in identity
+
+
 def get_duty_user(db: Session, on_date: date, department_id: int | None = None) -> User | None:
     """Return department duty officer, falling back to the shared duty schedule."""
     def find_duty(scope_id: int | None):
@@ -217,6 +225,8 @@ def generate_plans_for_period(
     )
     if work_direction:
         templates = [t for t in templates if (t.work_direction or "") == work_direction]
+    department = db.query(Department).filter(Department.id == department_id).first() if department_id is not None else None
+    network_department = is_network_department(department)
     if department_id is not None:
         templates = [t for t in templates if (not (t.department_ids or []) or department_id in (t.department_ids or [])) and department_id not in (t.excluded_department_ids or [])]
     if not include_daily_templates:
@@ -226,15 +236,20 @@ def generate_plans_for_period(
     month_end = date(year, month, monthrange(year, month)[1])
 
     # --- 1) Общесистемные / network шаблоны (без привязки к каждому объекту) ---
-    system_templates = [
-        t for t in templates
-        if not t.object_types
-        or t.object_types == ["network"]
-        or (len(t.object_types) == 1 and t.object_types[0] == "network")
-    ]
-    # В режиме подразделения все задачи привязываются к объектам этого подразделения.
-    if department_id is not None:
-        system_templates = []
+    if network_department:
+        # Для отдела Сети создаём по одной задаче на регламент/дату.
+        # Объекты, охваченные общей работой, перечисляются в отчёте.
+        system_templates = list(templates)
+    else:
+        system_templates = [
+            t for t in templates
+            if not t.object_types
+            or t.object_types == ["network"]
+            or (len(t.object_types) == 1 and t.object_types[0] == "network")
+        ]
+        # Для остальных подразделений объектные работы остаются индивидуальными.
+        if department_id is not None:
+            system_templates = []
     # исключим камерные коды
     system_templates = [
         t for t in system_templates
@@ -284,7 +299,7 @@ def generate_plans_for_period(
             by_direction[d] = by_direction.get(d, 0) + 1
 
     # --- 2) Объектные шаблоны (камеры, ОВН, ВОЛС) ---
-    object_templates = [t for t in templates if t not in system_templates]
+    object_templates = [] if network_department else [t for t in templates if t not in system_templates]
     q = db.query(Object).filter(Object.status == "active")
     if object_types:
         q = q.filter(Object.object_type.in_(object_types))
