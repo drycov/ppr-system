@@ -33,9 +33,31 @@
       document.body.innerHTML = "<div class=box><p>Не удалось загрузить UI</p><pre>" + String(err) + "</pre></div>";
       return;
     }
-    const patchTag = "<script src=\"/us-equipment-patch.js\"><\\/script>";
-    if (html.indexOf("</body>") >= 0) html = html.replace("</body>", patchTag + "\n</body>");
-    else html += patchTag;
+
+    // Bake US equipment fields into openObjectModal form source
+    const oldForm = "          <div class=\"grid grid-cols-2 gap-3\">\n            <div>\n              <label class=\"block text-slate-600 mb-1\">Кол-во камер</label>\n              <input name=\"cameras_count\" type=\"number\" min=\"0\" value=\"${obj ? (obj.cameras_count||0) : 0}\" class=\"w-full border rounded-lg px-3 py-2\">\n            </div>\n            <div>\n              <label class=\"block text-slate-600 mb-1\">Статус</label>\n              <select name=\"status\" class=\"w-full border rounded-lg px-3 py-2\">\n                <option value=\"active\" ${status==='active'?'selected':''}>active</option>\n                <option value=\"relocated\" ${status==='relocated'?'selected':''}>relocated</option>\n                <option value=\"decommissioned\" ${status==='decommissioned'?'selected':''}>decommissioned</option>\n              </select>\n            </div>\n          </div>";
+
+    const newForm = "          <div class=\"grid grid-cols-2 gap-3\">\n            <div>\n              <label class=\"block text-slate-600 mb-1\">Кол-во камер</label>\n              <input name=\"cameras_count\" type=\"number\" min=\"0\" value=\"${obj ? (obj.cameras_count||0) : 0}\" class=\"w-full border rounded-lg px-3 py-2\">\n            </div>\n            <div>\n              <label class=\"block text-slate-600 mb-1\">Статус</label>\n              <select name=\"status\" class=\"w-full border rounded-lg px-3 py-2\">\n                <option value=\"active\" ${status==='active'?'selected':''}>active</option>\n                <option value=\"relocated\" ${status==='relocated'?'selected':''}>relocated</option>\n                <option value=\"decommissioned\" ${status==='decommissioned'?'selected':''}>decommissioned</option>\n              </select>\n            </div>\n          </div>\n          <div id=\"obj-us-equipment\" class=\"${st==='us' ? '' : 'hidden'} rounded-xl border border-blue-100 bg-blue-50/50 p-3 space-y-3 mt-1\">\n            <div class=\"text-xs font-semibold uppercase tracking-wide text-blue-800\">Оборудование узла связи</div>\n            <div class=\"grid grid-cols-3 gap-3\">\n              <div>\n                <label class=\"block text-slate-600 mb-1 text-xs\">Коммутаторов</label>\n                <input name=\"switches_count\" type=\"number\" min=\"0\" value=\"${obj ? (obj.switches_count||0) : 0}\" class=\"w-full border rounded-lg px-3 py-2\">\n              </div>\n              <div>\n                <label class=\"block text-slate-600 mb-1 text-xs\">Роутеров</label>\n                <input name=\"routers_count\" type=\"number\" min=\"0\" value=\"${obj ? (obj.routers_count||0) : 0}\" class=\"w-full border rounded-lg px-3 py-2\">\n              </div>\n              <div>\n                <label class=\"block text-slate-600 mb-1 text-xs\">Дочерних объектов</label>\n                <input name=\"children_count\" type=\"number\" min=\"0\" value=\"${obj ? (obj.children_count||0) : 0}\" class=\"w-full border rounded-lg px-3 py-2\">\n              </div>\n            </div>\n          </div>";
+
+    if (html.indexOf(oldForm) >= 0) {
+      html = html.split(oldForm).join(newForm);
+      console.info("[ppr] US equipment form injected");
+    } else {
+      console.warn("[ppr] form snippet not found for US equipment inject");
+    }
+
+    const oldSubmit = "cameras_count: parseInt(fd.get('cameras_count') || '0', 10) || 0,\n          status: fd.get('status'),";
+    const newSubmit = "cameras_count: parseInt(fd.get('cameras_count') || '0', 10) || 0,\n          switches_count: parseInt(fd.get('switches_count') || '0', 10) || 0,\n          routers_count: parseInt(fd.get('routers_count') || '0', 10) || 0,\n          children_count: parseInt(fd.get('children_count') || '0', 10) || 0,\n          status: fd.get('status'),";
+    if (html.indexOf(oldSubmit) >= 0) {
+      html = html.split(oldSubmit).join(newSubmit);
+    }
+
+    const hook = "openModal();\n\n      if (isEdit) {";
+    const hookNew = "openModal();\n\n      (function(){\n        var ts = document.querySelector('#object-form select[name=\"object_type\"]');\n        var ub = document.getElementById('obj-us-equipment');\n        function sync(){ if(ts&&ub) ub.classList.toggle('hidden', ts.value !== 'us'); }\n        if(ts){ ts.addEventListener('change', sync); sync(); }\n      })();\n\n      if (isEdit) {";
+    if (html.indexOf(hook) >= 0) {
+      html = html.split(hook).join(hookNew);
+    }
+
     document.open();
     document.write(html);
     document.close();
