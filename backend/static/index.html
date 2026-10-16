@@ -508,8 +508,10 @@
 
     function typeLabel(t) {
       const map = {
-        camera_integration: 'ИНТ (камеры)',
+        camera_integration: 'Интеграция',
         ovn: 'ОВН',
+        lu: 'ЛУ',
+        p: 'П',
         voles: 'ВОЛС',
         sip: 'СИП',
         network: 'Сеть ОСС',
@@ -1089,7 +1091,10 @@
       if (objectsFilter.type) params.set('object_type', objectsFilter.type);
       if (objectsFilter.search) params.set('search', objectsFilter.search);
       params.set('limit', '200');
-      const objects = await api('/api/objects?' + params);
+      const [objects, usNodes] = await Promise.all([api('/api/objects?' + params), api('/api/objects?object_type=us&limit=200').catch(() => [])]);
+      const usById = new Map(usNodes.map(node => [Number(node.id), node]));
+      const usSummaries = new Map();
+      await Promise.all(objects.filter(o => o.object_type === 'us').map(async o => { try { usSummaries.set(Number(o.id), await api('/api/objects/' + o.id + '/address-summary')); } catch (_) {} }));
 
       el.innerHTML = `
         <div class="flex flex-wrap gap-3 mb-4 items-center">
@@ -1097,8 +1102,10 @@
           <select id="obj-type" class="border border-slate-300 rounded-lg px-3 py-2 text-sm">
             <option value="">Все типы</option>
             <optgroup label="АПК / линии">
-              <option value="camera_integration" ${objectsFilter.type==='camera_integration'?'selected':''}>ИНТ (камеры)</option>
+              <option value="camera_integration" ${objectsFilter.type==='camera_integration'?'selected':''}>Интеграция</option>
               <option value="ovn" ${objectsFilter.type==='ovn'?'selected':''}>ОВН</option>
+              <option value="lu" ${objectsFilter.type==='lu'?'selected':''}>ЛУ</option>
+              <option value="p" ${objectsFilter.type==='p'?'selected':''}>П</option>
               <option value="voles" ${objectsFilter.type==='voles'?'selected':''}>ВОЛС</option>
               <option value="sip" ${objectsFilter.type==='sip'?'selected':''}>СИП</option>
             </optgroup>
@@ -1137,8 +1144,8 @@
                 objects.map(o => `
                 <tr class="table-row border-t border-slate-50">
                   <td class="px-4 py-3 font-mono text-xs font-medium">${o.code}</td>
-                  <td class="px-4 py-3 max-w-xs truncate" title="${(o.address || '').replace(/"/g,'&quot;')}">${o.address || o.name || '—'}</td>
-                  <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${typeLabel(o.object_type)}</span></td>
+                  <td class="px-4 py-3 max-w-xs" title="${(o.address || '').replace(/"/g,'&quot;')}"><div class="truncate">${o.address || o.name || '—'}</div>${o.parent_us_id && usById.has(Number(o.parent_us_id)) ? '<div class="mt-1 text-xs text-indigo-600">УС: ' + usById.get(Number(o.parent_us_id)).code + '</div>' : ''} </td>
+                  <td class="px-4 py-3"><span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${typeLabel(o.object_type)}</span>${o.object_type === 'us' && usSummaries.has(Number(o.id)) ? '<div class="mt-2 max-w-xs text-[11px] leading-5 text-slate-600">Всего адресов: <b>' + usSummaries.get(Number(o.id)).total + '</b><br>' + usSummaries.get(Number(o.id)).types.map(t => t.name + ': ' + t.count).join(' · ') + '</div>' : ''} </td>
                   <td class="px-4 py-3">${o.cameras_count || '—'}</td>
                   <td class="px-4 py-3 text-xs">${o.responsible_default || '—'}</td>
                   <td class="px-4 py-3"><span class="text-xs ${o.status==='active'?'text-teal-700':'text-slate-400'}">${o.status}</span></td>
@@ -1157,13 +1164,16 @@
 
     async function openObjectModal(objectId) {
       let obj = null;
+      const usNodes = await api('/api/objects?object_type=us&limit=200').catch(() => []);
       if (objectId) {
         obj = await api('/api/objects/' + objectId);
       }
       const isEdit = !!obj;
       const typeOpts = [
-        ['camera_integration', 'ИНТ (интеграция камер)'],
-        ['ovn', 'ОВН (уличные)'],
+        ['camera_integration', 'Интеграция'],
+        ['ovn', 'ОВН'],
+        ['lu', 'ЛУ (локационный узел)'],
+        ['p', 'П'],
         ['voles', 'ВОЛС'],
         ['sip', 'СИП'],
         ['us', 'УС (узел связи)'],
@@ -1202,6 +1212,14 @@
           <div>
             <label class="block text-slate-600 mb-1">Адрес</label>
             <input name="address" value="${obj ? (obj.address||'').replace(/"/g,'&quot;') : ''}" class="w-full border rounded-lg px-3 py-2" placeholder="г. Усть-Каменогорск, ...">
+          </div>
+          <div id="parent-us-wrap" style="display:${['ovn','camera_integration','lu','p'].includes(st) ? 'block' : 'none'}">
+            <label class="block text-slate-600 mb-1">Родительский узел связи (УС)</label>
+            <select name="parent_us_id" class="w-full border rounded-lg px-3 py-2">
+              <option value="">— без привязки к УС —</option>
+              ${usNodes.filter(node => !obj || Number(node.id) !== Number(obj.id)).map(node => `<option value="${node.id}" ${Number(obj?.parent_us_id)===Number(node.id)?'selected':''}>${node.code} — ${node.address || node.name || ''}</option>`).join('')}
+            </select>
+            <p class="mt-1 text-xs text-slate-500">Состав УС рассчитывается по привязанным адресам.</p>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -1248,6 +1266,9 @@
         };
       }
 
+      const objectTypeSelect = document.querySelector('#object-form select[name="object_type"]');
+      if (objectTypeSelect) objectTypeSelect.addEventListener('change', () => { const wrap = document.getElementById('parent-us-wrap'); if (wrap) wrap.style.display = ['ovn','camera_integration','lu','p'].includes(objectTypeSelect.value) ? 'block' : 'none'; });
+
       document.getElementById('object-form').onsubmit = async (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
@@ -1260,6 +1281,7 @@
           status: fd.get('status'),
           responsible_default: fd.get('responsible_default') || null,
           notes: fd.get('notes') || null,
+          parent_us_id: ['ovn','camera_integration','lu','p'].includes(fd.get('object_type')) && fd.get('parent_us_id') ? Number(fd.get('parent_us_id')) : null,
         };
         try {
           if (isEdit) {

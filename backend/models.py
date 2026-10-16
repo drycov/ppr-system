@@ -12,6 +12,8 @@ class ObjectType(str, enum.Enum):
     # АПК / линии
     CAMERA_INTEGRATION = "camera_integration"  # ИНТ
     OVN = "ovn"                                # ОВН (уличные)
+    LU = "lu"                                  # ЛУ — локационный узел
+    P = "p"                                    # П — тип адреса УС
     VOLES = "voles"                            # ВОЛС
     SIP = "sip"                                # СИП
     # Сетевая инфраструктура ОСС
@@ -57,6 +59,7 @@ class Object(Base):
     status = Column(String(30), default="active")  # active, relocated, decommissioned
     responsible_default = Column(String(150))
     notes = Column(Text)
+    parent_us_id = Column(Integer, ForeignKey("objects.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
