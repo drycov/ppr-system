@@ -369,6 +369,52 @@ def seed_templates(db: Session):
 
 
 
+def seed_data_center_templates(db: Session):
+    """Добавляет регламенты ЦОД на существующих инсталляциях без перезаписи настроек других шаблонов."""
+    templates = [
+        {
+            "code": "DC-1",
+            "name": "Ежедневный контроль ЦОД",
+            "description": "Контроль температуры и климатических условий, питания и ИБП, аварийных сигналов, доступности критичных сервисов",
+            "object_types": ["cod"],
+            "work_items": ["Температура и климат", "Питание и ИБП", "Аварийные сигналы", "Доступность критичных сервисов"],
+            "periodicity": "daily", "responsible_role": "engineer", "work_direction": "sysadmin",
+        },
+        {
+            "code": "DC-2",
+            "name": "Ежемесячная проверка инженерных систем ЦОД",
+            "description": "Проверка ИБП и состояния АКБ, климатического оборудования, датчиков и систем оповещения",
+            "object_types": ["cod"],
+            "work_items": ["Состояние ИБП и АКБ", "Климатическое оборудование", "Датчики среды", "Система оповещения"],
+            "periodicity": "monthly", "responsible_role": "engineer", "work_direction": "sysadmin",
+        },
+        {
+            "code": "DC-3",
+            "name": "Квартальный осмотр инфраструктуры ЦОД",
+            "description": "Проверка стоек, кабельной инфраструктуры, маркировки, заземления и документации",
+            "object_types": ["cod"],
+            "work_items": ["Состояние стоек", "Кабельная инфраструктура и маркировка", "Проверка заземления", "Актуальность схем и документации"],
+            "periodicity": "quarterly", "responsible_role": "engineer", "work_direction": "network_engineer",
+        },
+        {
+            "code": "DC-4",
+            "name": "Полугодовая проверка безопасности ЦОД",
+            "description": "Проверка контроля доступа, пожарной сигнализации и готовности инженерных систем по доступной документации",
+            "object_types": ["cod"],
+            "work_items": ["Контроль доступа", "Пожарная сигнализация", "Актуальность аварийных контактов", "Проверка журналов обслуживания"],
+            "periodicity": "semi_annual", "responsible_role": "engineer", "work_direction": "network_engineer",
+        },
+    ]
+    added = 0
+    for template in templates:
+        if not db.query(PPRTemplate).filter(PPRTemplate.code == template["code"]).first():
+            db.add(PPRTemplate(**template))
+            added += 1
+    if added:
+        db.commit()
+    return added
+
+
 def seed_directories(db: Session):
     """Справочники: подразделения, должности, системные роли (без сотрудников)."""
     roles = [
