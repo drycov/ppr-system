@@ -10,6 +10,19 @@ from sqlalchemy.orm import Session, joinedload
 from models import DailyCheck, Department, Object, PPRPlan, PPRTemplate
 
 
+NETWORK_OBJECT_TYPES = {
+    "network", "us", "cod", "core_router", "core_switch",
+    "access_switch", "edge_router", "wifi_controller", "server", "ups",
+}
+
+
+def _is_network_department(department: Department | None) -> bool:
+    if not department:
+        return False
+    identity = f"{department.name or ''} {department.code or ''}".casefold()
+    return "сет" in identity or "network" in identity
+
+
 THIN = Border(*( [Side(style="thin")] * 4 ))
 HEADER_FILL = PatternFill("solid", fgColor="0F766E")
 HEADER_FONT = Font(bold=True, color="FFFFFF", size=10)
@@ -60,23 +73,26 @@ def export_ppr_period_report(
         .all()
     )
 
-    departments_by_id = {item.id: item.name for item in db.query(Department).all()}
+    departments = db.query(Department).all()
+    departments_by_id = {item.id: item.name for item in departments}
+    network_department_ids = {item.id for item in departments if _is_network_department(item)}
+    active_objects = db.query(Object).filter(Object.status == "active").order_by(Object.object_type, Object.code).all()
     wb = Workbook()
     ws = wb.active
     ws.title = "Задачи ППР"
-    ws.merge_cells("A1:L1")
+    ws.merge_cells("A1:M1")
     department = db.query(Department).filter(Department.id == department_id).first() if department_id is not None else None
     period_title = f"Подразделение: {department.name} | " if department else ""
     ws["A1"] = f"ОТЧЁТ О ВЫПОЛНЕНИИ ППР: {period_title}{from_date:%d.%m.%Y} — {to_date:%d.%m.%Y}"
     ws["A1"].font = TITLE_FONT
     ws["A1"].alignment = Alignment(horizontal="center")
     headers = ["№", "Плановая дата", "Фактическая дата", "Объект", "Адрес", "Подразделение", "Направление",
-               "Работа", "Ответственный", "Статус", "Виды работ", "Комментарий / аудит"]
+               "Работа", "Ответственный", "Статус", "Виды работ", "Комментарий / аудит", "Перечень объектов"]
     for col, value in enumerate(headers, 1):
         ws.cell(row=3, column=col, value=value)
     _header(ws, 3, len(headers))
     ws.freeze_panes = "A4"
-    ws.auto_filter.ref = f"A3:L{max(3, len(plans) + 3)}"
+    ws.auto_filter.ref = f"A3:M{max(3, len(plans) + 3)}"
 
     counts = {"done": 0, "planned": 0, "in_progress": 0, "overdue": 0, "cancelled": 0, "fictitious": 0}
     labels = {"done": "Выполнено", "planned": "Запланировано", "in_progress": "В работе",
@@ -90,9 +106,25 @@ def export_ppr_period_report(
         obj = plan.object
         template = plan.template
         assignee = plan.assignee_user
+        covered_objects = []
+        if obj:
+            covered_objects = [obj]
+        elif plan.department_id in network_department_ids:
+            object_types = (template.object_types or []) if template else []
+            if not object_types or object_types == ["network"]:
+                covered_objects = [item for item in active_objects if item.object_type in NETWORK_OBJECT_TYPES]
+            else:
+                covered_types = set(object_types)
+                if "network" in covered_types:
+                    covered_types.update(NETWORK_OBJECT_TYPES)
+                covered_objects = [item for item in active_objects if item.object_type in covered_types]
+        object_list = "; ".join(
+            f"{item.code} — {item.name or item.address or ''}".rstrip(" —")
+            for item in covered_objects
+        )
         values = [
             idx, plan.planned_date, plan.fact_date,
-            (obj.code if obj else "—"),
+            (obj.code if obj else ("Общая задача" if covered_objects else "—")),
             ((obj.address or obj.name or "") if obj else ""),
             departments_by_id.get(plan.department_id, "—"),
             (template.work_direction if template else ""),
@@ -101,6 +133,7 @@ def export_ppr_period_report(
             ("ФИКТИВНО ОТМЕЧЕНО" if fictitious else labels.get(plan.status, plan.status)),
             ", ".join(plan.work_types_done or []),
             comment,
+            object_list,
         ]
         row = idx + 3
         for col, value in enumerate(values, 1):
@@ -119,7 +152,7 @@ def export_ppr_period_report(
                 cell.fill = OVERDUE_FILL
         ws.row_dimensions[row].height = 36
 
-    for i, width in enumerate([6, 14, 14, 18, 38, 24, 20, 38, 28, 22, 28, 60], 1):
+    for i, width in enumerate([6, 14, 14, 18, 38, 24, 20, 38, 28, 22, 28, 60, 72], 1):
         ws.column_dimensions[get_column_letter(i)].width = width
 
     summary = wb.create_sheet("Сводка")
