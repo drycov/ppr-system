@@ -1975,8 +1975,7 @@ async function renderStaff(el) {
         const ds=y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
         const dayRows=visibleDepartments.map(dept=>{
           const local=visibleDuties.filter(d=>d.duty_date===ds&&Number(d.department_id)===Number(dept.id));
-          const global=visibleDuties.filter(d=>d.duty_date===ds&&d.department_id==null);
-          const rows=local;
+            const rows=local;
           if(!rows.length)return '<div class="text-xs text-slate-400">'+esc(dept.name)+': не назначен</div>';
           return '<div class="mb-1 rounded-lg bg-slate-50 px-3 py-2"><div class="text-xs font-semibold text-slate-700">'+esc(dept.name)+' <span class="font-normal text-slate-400">· '+'график подразделения'+'</span></div><div class="mt-1 flex flex-wrap gap-1">'+rows.map(d=>'<span class="rounded-md bg-white px-2 py-1 text-xs text-slate-700">'+esc(d.user?(d.user.full_name||d.user.username):'Сотрудник')+' · '+esc(shiftName(d.shift))+'</span>').join('')+'</div></div>';
         }).join('');
